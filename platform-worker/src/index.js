@@ -193,7 +193,93 @@ export default {
           ]);
           return json({ ok: true, id }, 201, cors);
         }
-        return json({ ok: false, error: "Not found." }, 404, cors);
+    
+    // All management routes are protected server-side, regardless of frontend visibility.
+    if (url.pathname === "/api/admin/levels/all" || /^\/api\/admin\/levels\/[^/]+$/.test(url.pathname) ||
+        url.pathname === "/api/admin/submissions" || /^\/api\/admin\/submissions\/[^/]+$/.test(url.pathname)) {
+      if (!env.DB) return json({ ok: false, error: "Database unavailable." }, 503, cors);
+      let user;
+      try { user = await authenticatedUser(request, env); }
+      catch { return json({ ok: false, error: "Authentication service unavailable." }, 503, cors); }
+      if (!user) return json({ ok: false, error: "Sign in required." }, 401, cors);
+      try {
+        const role = await env.DB.prepare("SELECT role FROM moderator_roles WHERE user_id = ?").bind(user.id).first();
+        if (!role || !["owner", "admin", "moderator"].includes(role.role))
+          return json({ ok: false, error: "Staff access required." }, 403, cors);
+        const canEditLevels = ["owner", "admin"].includes(role.role);
+        if (url.pathname === "/api/admin/levels/all" && request.method === "GET") {
+          if (!canEditLevels) return json({ ok: false, error: "Admin access required." }, 403, cors);
+          const rows = await env.DB.prepare("SELECT id, name, creator, verifier, publisher, gd_level_id, verifier_video_url, position, points, list_status FROM levels ORDER BY position IS NULL, position, name LIMIT 500").all();
+          return json({ ok: true, levels: rows.results || [] }, 200, cors);
+        }
+        if (url.pathname === "/api/admin/submissions" && request.method === "GET") {
+          const rows = await env.DB.prepare("SELECT s.id, s.level_id, l.name AS level_name, s.user_id, COALESCE(p.display_name, 'Unknown') AS player_name, s.percent, s.evidence_url, s.notes, s.status, s.review_note, s.submitted_at, s.reviewed_at FROM record_submissions s JOIN levels l ON l.id = s.level_id LEFT JOIN player_profiles p ON p.user_id = s.user_id ORDER BY CASE WHEN s.status = 'pending' THEN 0 ELSE 1 END, s.submitted_at DESC LIMIT 500").all();
+          return json({ ok: true, submissions: rows.results || [] }, 200, cors);
+        }
+        const isLevel = url.pathname.startsWith("/api/admin/levels/");
+        const id = decodeURIComponent(url.pathname.split("/").pop());
+        if (!/^[a-f0-9-]{36}$/.test(id)) return json({ ok: false, error: "Invalid ID." }, 400, cors);
+        if (isLevel) {
+          if (!canEditLevels) return json({ ok: false, error: "Admin access required." }, 403, cors);
+          const old = await env.DB.prepare("SELECT * FROM levels WHERE id = ?").bind(id).first();
+          if (!old) return json({ ok: false, error: "Challenge not found." }, 404, cors);
+          if (request.method === "DELETE") {
+            const records = await env.DB.prepare("SELECT (SELECT COUNT(*) FROM record_submissions WHERE level_id = ?) AS count").bind(id).first();
+            if (records.count > 0) return json({ ok: false, error: "Challenge has submissions. Set its section to Unlisted instead to preserve player records." }, 409, cors);
+            await env.DB.batch([
+              env.DB.prepare("DELETE FROM levels WHERE id = ? AND NOT EXISTS (SELECT 1 FROM record_submissions WHERE level_id = ?)").bind(id, id),
+              env.DB.prepare("INSERT INTO moderation_audit_log (id, actor_user_id, action, target_type, target_id, details_json) VALUES (?, ?, 'delete_level', 'level', ?, ?)").bind(crypto.randomUUID(), user.id, id, JSON.stringify({ name: old.name }))
+            ]);
+            return json({ ok: true }, 200, cors);
+          }
+          if (request.method !== "PUT") return json({ ok: false, error: "Method not allowed." }, 405, cors);
+          if (request.headers.get("Content-Type")?.split(";")[0].trim() !== "application/json") return json({ ok: false, error: "Expected JSON." }, 415, cors);
+          const raw = await request.text();
+          if (raw.length > 4096) return json({ ok: false, error: "Request too large." }, 413, cors);
+          let d; try { d = JSON.parse(raw); } catch { return json({ ok: false, error: "Invalid JSON." }, 400, cors); }
+          const { name, creator, verifier, publisher, gd_level_id, verifier_video_url, position, points, list_status } = d || {};
+          if (typeof name !== "string" || !name.trim() || name.length > 120 ||
+              [creator, verifier, publisher].some(v => typeof v !== "string" || v.length > 120) ||
+              typeof gd_level_id !== "string" || !/^\d{0,15}$/.test(gd_level_id) ||
+              typeof verifier_video_url !== "string" || verifier_video_url.length > 2048 ||
+              (position !== null && (!Number.isInteger(position) || position < 1 || position > 100000)) ||
+              (points !== null && (typeof points !== "number" || !Number.isFinite(points) || points < 0 || points > 1000000)) ||
+              !["active", "extended", "legacy", "unlisted"].includes(list_status))
+            return json({ ok: false, error: "Invalid challenge details." }, 400, cors);
+          if (verifier_video_url) {
+            let u; try { u = new URL(verifier_video_url); } catch { return json({ ok: false, error: "Invalid video URL." }, 400, cors); }
+            if (u.protocol !== "https:" || u.username || u.password) return json({ ok: false, error: "Video URL must be HTTPS." }, 400, cors);
+          }
+          await env.DB.batch([
+            env.DB.prepare("UPDATE levels SET name=?, creator=?, verifier=?, publisher=?, gd_level_id=?, verifier_video_url=?, position=?, points=?, list_status=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id=?").bind(name.trim(), creator.trim(), verifier.trim(), publisher.trim(), gd_level_id || null, verifier_video_url || null, position, points, list_status, id),
+            env.DB.prepare("INSERT INTO moderation_audit_log (id, actor_user_id, action, target_type, target_id, details_json) VALUES (?, ?, 'edit_level', 'level', ?, ?)").bind(crypto.randomUUID(), user.id, id, JSON.stringify({ name: name.trim(), list_status }))
+          ]);
+          return json({ ok: true }, 200, cors);
+        }
+        if (request.method !== "PUT") return json({ ok: false, error: "Method not allowed." }, 405, cors);
+        if (request.headers.get("Content-Type")?.split(";")[0].trim() !== "application/json") return json({ ok: false, error: "Expected JSON." }, 415, cors);
+        const raw = await request.text();
+        if (raw.length > 2048) return json({ ok: false, error: "Request too large." }, 413, cors);
+        let d; try { d = JSON.parse(raw); } catch { return json({ ok: false, error: "Invalid JSON." }, 400, cors); }
+        if (!["approved", "rejected", "needs_changes"].includes(d?.status) || typeof d?.review_note !== "string" || d.review_note.length > 500)
+          return json({ ok: false, error: "Invalid review." }, 400, cors);
+        const submission = await env.DB.prepare("SELECT * FROM record_submissions WHERE id = ?").bind(id).first();
+        if (!submission) return json({ ok: false, error: "Submission not found." }, 404, cors);
+        if (submission.status !== "pending") return json({ ok: false, error: "This submission has already been reviewed." }, 409, cors);
+        const actions = [
+          env.DB.prepare("UPDATE record_submissions SET status=?, review_note=?, reviewed_by=?, reviewed_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id=? AND status='pending'").bind(d.status, d.review_note.trim(), user.id, id)
+        ];
+        if (d.status === "approved") {
+          actions.push(env.DB.prepare("INSERT INTO accepted_records (id, submission_id, user_id, level_id, percent, evidence_url, approved_by) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(crypto.randomUUID(), id, submission.user_id, submission.level_id, submission.percent, submission.evidence_url, user.id));
+        }
+        actions.push(env.DB.prepare("INSERT INTO moderation_audit_log (id, actor_user_id, action, target_type, target_id, details_json) VALUES (?, ?, ?, 'submission', ?, ?)").bind(crypto.randomUUID(), user.id, "review_" + d.status, id, JSON.stringify({ note: d.review_note.trim() })));
+        await env.DB.batch(actions);
+        return json({ ok: true, status: d.status }, 200, cors);
+      } catch {
+        return json({ ok: false, error: "Management request failed." }, 500, cors);
+      }
+    }
+    return json({ ok: false, error: "Not found." }, 404, cors);
       } catch {
         return json({ ok: false, error: "Admin database request failed." }, 500, cors);
       }
