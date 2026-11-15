@@ -60,7 +60,7 @@ export default {
     }
     if (url.pathname === "/api/history" && request.method === "GET") {
       const date = url.searchParams.get("date");
-      if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date || "") || !Number.isFinite(Date.parse(date + "T00:00:00Z")) || new Date(date + "T00:00:00Z").toISOString().slice(0,10) !== date)
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date || "") || !Number.isFinite(Date.parse(date + "T00:00:00Z")) || new Date(date + "T00:00:00Z").toISOString().slice(0,10) !== date)
         return json({ ok: false, error: "Enter a valid date." }, 400, cors);
       if (date > new Date().toISOString().slice(0,10)) return json({ ok: false, error: "Future dates are unavailable." }, 400, cors);
       try {
@@ -240,7 +240,7 @@ export default {
         const events = (rows.results || []).map(level => env.DB.prepare("INSERT INTO moderation_audit_log (id, actor_user_id, action, target_type, target_id, details_json) VALUES (?, ?, 'level_snapshot', 'level', ?, ?)").bind(crypto.randomUUID(), user.id, level.id, JSON.stringify(level)));
         events.push(env.DB.prepare("INSERT INTO moderation_audit_log (id, actor_user_id, action, target_type, target_id, details_json) VALUES (?, ?, 'history_started', 'history', ?, '{}')").bind(crypto.randomUUID(), user.id, "baseline"));
         await env.DB.batch(events);
-        return json({ ok: true, started: true, count: events.length }, 200, cors);
+        return json({ ok: true, started: true, count: events.length - 1 }, 200, cors);
       } catch { return json({ ok: false, error: "Could not start history tracking." }, 500, cors); }
     }
 
