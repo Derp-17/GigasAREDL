@@ -24,7 +24,29 @@ async function authenticatedUser(request, env) {
   const user = await response.json();
   return typeof user.id === "string" ? user : null;
 }
+
+function londonSnapshotDate(instant) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/London", year: "numeric", month: "2-digit",
+    day: "2-digit", hour: "2-digit", hourCycle: "h23"
+  }).formatToParts(instant);
+  const part = name => parts.find(p => p.type === name)?.value;
+  return { date: part("year") + "-" + part("month") + "-" + part("day"), hour: part("hour") };
+}
+async function saveDailySnapshot(env, instant) {
+  const { date, hour } = londonSnapshotDate(instant);
+  if (hour !== "23") return { saved: false, reason: "Not 23:00 Europe/London." };
+  const existing = await env.DB.prepare("SELECT id FROM moderation_audit_log WHERE action = 'daily_list_snapshot' AND target_id = ? LIMIT 1").bind(date).first();
+  if (existing) return { saved: false, reason: "Snapshot already exists for " + date };
+  const rows = await env.DB.prepare("SELECT id, name, creator, verifier, publisher, gd_level_id, verifier_video_url, thumbnail_url, position, points, list_status FROM levels ORDER BY position ASC, name ASC").all();
+  const levels = rows.results || [];
+  await env.DB.prepare("INSERT INTO moderation_audit_log (id, actor_user_id, action, target_type, target_id, details_json, created_at) VALUES (?, NULL, 'daily_list_snapshot', 'history', ?, ?, ?)").bind(crypto.randomUUID(), date, JSON.stringify({ date, levels }), instant.toISOString()).run();
+  return { saved: true, date, count: levels.length };
+}
 export default {
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(saveDailySnapshot(env, new Date(event.scheduledTime)));
+  },
   async fetch(request, env) {
     const url = new URL(request.url);
     const cors = corsHeaders(request, env);
@@ -60,20 +82,17 @@ export default {
     }
     if (url.pathname === "/api/history" && request.method === "GET") {
       const date = url.searchParams.get("date");
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(date || "") || !Number.isFinite(Date.parse(date + "T00:00:00Z")) || new Date(date + "T00:00:00Z").toISOString().slice(0,10) !== date)
+      if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date || "") || !Number.isFinite(Date.parse(date + "T00:00:00Z")) || new Date(date + "T00:00:00Z").toISOString().slice(0,10) !== date)
         return json({ ok: false, error: "Enter a valid date." }, 400, cors);
-      if (date > new Date().toISOString().slice(0,10)) return json({ ok: false, error: "Future dates are unavailable." }, 400, cors);
+      const today = londonSnapshotDate(new Date()).date;
+      if (date > today) return json({ ok: false, error: "Future dates are unavailable." }, 400, cors);
       try {
-        const rows = await env.DB.prepare("SELECT action, target_id, details_json, created_at FROM moderation_audit_log WHERE action = 'level_snapshot' AND created_at < ? ORDER BY created_at ASC LIMIT 10000").bind(date + "T23:59:59.999Z").all();
-        const byId = new Map();
-        let first = null;
-        for (const event of rows.results || []) {
-          if (!first) first = event.created_at.slice(0, 10);
-          try { const level = JSON.parse(event.details_json); if (level && level.id) byId.set(level.id, level); } catch {}
-        }
-        const levels = [...byId.values()].filter(l => ["active","extended","legacy"].includes(l.list_status))
+        const row = await env.DB.prepare("SELECT target_id, details_json FROM moderation_audit_log WHERE action = 'daily_list_snapshot' AND target_id <= ? ORDER BY target_id DESC LIMIT 1").bind(date).first();
+        if (!row) return json({ ok: true, levels: [], tracking_started: false, snapshot_date: null }, 200, cors);
+        const data = JSON.parse(row.details_json);
+        const levels = (data.levels || []).filter(l => ["active","extended","legacy"].includes(l.list_status))
           .sort((a,b) => (a.position ?? Infinity) - (b.position ?? Infinity) || a.name.localeCompare(b.name));
-        return json({ ok: true, levels, earliest_available: first, tracking_started: (rows.results || []).length > 0, limited_history: true }, 200, cors);
+        return json({ ok: true, levels, tracking_started: true, snapshot_date: row.target_id, exact_date: row.target_id === date }, 200, cors);
       } catch { return json({ ok: false, error: "Could not load historical rankings." }, 500, cors); }
     }
     if (url.pathname.startsWith("/api/players/") && request.method === "GET") {
@@ -226,23 +245,6 @@ export default {
       }
     }
 
-
-    if (url.pathname === "/api/admin/history/start" && request.method === "POST") {
-      let user;
-      try { user = await authenticatedUser(request, env); } catch { return json({ ok: false, error: "Authentication unavailable." }, 503, cors); }
-      if (!user) return json({ ok: false, error: "Sign in required." }, 401, cors);
-      try {
-        const role = await env.DB.prepare("SELECT role FROM moderator_roles WHERE user_id = ?").bind(user.id).first();
-        if (!role || !["owner","admin"].includes(role.role)) return json({ ok: false, error: "Admin access required." }, 403, cors);
-        const previous = await env.DB.prepare("SELECT id FROM moderation_audit_log WHERE action = 'history_started' LIMIT 1").first();
-        if (previous) return json({ ok: true, started: false, message: "History tracking has already started." }, 200, cors);
-        const rows = await env.DB.prepare("SELECT id, name, creator, verifier, publisher, gd_level_id, verifier_video_url, thumbnail_url, position, points, list_status FROM levels LIMIT 500").all();
-        const events = (rows.results || []).map(level => env.DB.prepare("INSERT INTO moderation_audit_log (id, actor_user_id, action, target_type, target_id, details_json) VALUES (?, ?, 'level_snapshot', 'level', ?, ?)").bind(crypto.randomUUID(), user.id, level.id, JSON.stringify(level)));
-        events.push(env.DB.prepare("INSERT INTO moderation_audit_log (id, actor_user_id, action, target_type, target_id, details_json) VALUES (?, ?, 'history_started', 'history', ?, '{}')").bind(crypto.randomUUID(), user.id, "baseline"));
-        await env.DB.batch(events);
-        return json({ ok: true, started: true, count: events.length - 1 }, 200, cors);
-      } catch { return json({ ok: false, error: "Could not start history tracking." }, 500, cors); }
-    }
 
     // All management routes are protected server-side, regardless of frontend visibility.
     if (url.pathname === "/api/admin/levels/all" || /^\/api\/admin\/levels\/[^/]+$/.test(url.pathname) ||
