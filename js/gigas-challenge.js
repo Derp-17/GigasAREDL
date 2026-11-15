@@ -69,7 +69,7 @@
     if (!response.ok) throw new Error(data.error || "Could not load challenge.");
     return data;
   }).then(({ level, victors }) => {
-    document.title = level.name + " | Gigas Challenge List";
+    document.title = level.name + " | Giga's Challenge List";
     text("challenge-name", level.name);
     text("challenge-rank", level.position ? "#" + level.position : "Unranked");
     text("challenge-section", level.list_status === "extended" ? "Extended List" : level.list_status === "legacy" ? "Legacy List" : "Main List");
