@@ -18,3 +18,8 @@ SITE_ORIGIN = "https://gigas-challenge-list.pages.dev"
 # Public Supabase values; never put a secret/service_role key here.
 SUPABASE_URL = "https://nnajfkanqjvtdpwiqhzh.supabase.co"
 SUPABASE_PUBLISHABLE_KEY = "sb_publishable_2esFevUmJB8QcNvVQNmc-A_74KYFq2U"
+
+# Cloudflare cron expressions use UTC. Check Europe/London inside the Worker
+# so snapshots happen at 23:00 local time in both GMT and BST.
+[triggers]
+crons = ["0 22,23 * * *"]
