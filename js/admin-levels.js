@@ -16,21 +16,65 @@
     if (!response.ok) throw new Error(data.error || "Request failed.");
     return data;
   }
+  let editing = null;
+  let levels = [];
+  const value = id => document.getElementById(id).value.trim();
+  function resetEdit() {
+    editing = null; form.reset();
+    document.getElementById("form-title").textContent = "Add a challenge";
+    save.textContent = "Add challenge";
+    document.getElementById("cancel-edit").hidden = true;
+  }
+  document.getElementById("cancel-edit").addEventListener("click", resetEdit);
+  async function refreshLevels() {
+    const data = await apiRequest("/api/admin/levels/all");
+    levels = data.levels;
+    const list = document.getElementById("admin-level-list");
+    list.replaceChildren();
+    document.getElementById("levels-message").textContent = levels.length ? levels.length + " challenges" : "No challenges yet.";
+    for (const level of levels) {
+      const row = document.createElement("div"); row.className = "level-row";
+      const title = document.createElement("strong");
+      title.textContent = level.name + " · " + level.list_status + (level.position ? " · #" + level.position : "");
+      const edit = document.createElement("button"); edit.type = "button"; edit.textContent = "Edit";
+      edit.addEventListener("click", () => {
+        editing = level.id;
+        for (const id of ["name", "creator", "verifier", "publisher", "gd_level_id", "verifier_video_url", "position", "points", "list_status"])
+          document.getElementById(id).value = level[id] ?? "";
+        document.getElementById("form-title").textContent = "Edit " + level.name;
+        save.textContent = "Save changes";
+        document.getElementById("cancel-edit").hidden = false;
+        form.scrollIntoView({ behavior: "smooth" });
+      });
+      const del = document.createElement("button"); del.type = "button"; del.textContent = "Delete";
+      del.addEventListener("click", async () => {
+        if (!confirm("Permanently delete " + level.name + "? Challenges with submissions cannot be deleted.")) return;
+        del.disabled = true;
+        try {
+          await apiRequest("/api/admin/levels/" + encodeURIComponent(level.id), { method: "DELETE" });
+          if (editing === level.id) resetEdit();
+          status.textContent = "Challenge deleted.";
+          await refreshLevels();
+        } catch (error) { status.textContent = error.message; del.disabled = false; }
+      });
+      row.append(title, edit, del); list.append(row);
+    }
+  }
   async function init() {
     try {
       const { role } = await apiRequest("/api/admin/me");
       status.textContent = "Signed in with " + role + " permissions.";
       document.getElementById("admin-card").hidden = false;
+      await refreshLevels();
     } catch (error) { status.textContent = error.message; }
   }
   form.addEventListener("submit", async event => {
     event.preventDefault();
     save.disabled = true;
-    const value = id => document.getElementById(id).value.trim();
     try {
       const position = value("position"), points = value("points");
-      const result = await apiRequest("/api/admin/levels", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+      const result = await apiRequest(editing ? "/api/admin/levels/" + encodeURIComponent(editing) : "/api/admin/levels", {
+        method: editing ? "PUT" : "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: value("name"), creator: value("creator"), verifier: value("verifier"),
           publisher: value("publisher"), gd_level_id: value("gd_level_id"),
@@ -39,8 +83,9 @@
           points: points ? Number(points) : null, list_status: value("list_status")
         })
       });
-      status.textContent = "Challenge added successfully (ID: " + result.id + ").";
-      form.reset();
+      status.textContent = editing ? "Challenge updated successfully." : "Challenge added successfully (ID: " + result.id + ").";
+      resetEdit();
+      await refreshLevels();
     } catch (error) { status.textContent = error.message; }
     finally { save.disabled = false; }
   });
