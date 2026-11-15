@@ -30,6 +30,9 @@
       if (lastProfileUser !== userId) return;
       document.getElementById("username").value = profile?.display_name || "";
       document.getElementById("bio").value = profile?.bio || "";
+      const view = document.getElementById("view-profile");
+      view.hidden = !profile;
+      if (profile) view.href = "player.html?name=" + encodeURIComponent(profile.display_name);
       message(profile ? "Signed in. You can edit your player profile." : "Signed in. Choose your player username.");
     } catch (error) { message("Signed in, but profile could not load: " + error.message); }
   }
@@ -42,6 +45,9 @@
         bio: document.getElementById("bio").value
       });
       message("Profile saved! Your username is " + profile.display_name + ".");
+      const view = document.getElementById("view-profile");
+      view.href = "player.html?name=" + encodeURIComponent(profile.display_name);
+      view.hidden = false;
     } catch (error) { message(error.message); }
     finally { saveProfileButton.disabled = false; }
   });
