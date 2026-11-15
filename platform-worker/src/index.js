@@ -82,7 +82,7 @@ export default {
     }
     if (url.pathname === "/api/history" && request.method === "GET") {
       const date = url.searchParams.get("date");
-      if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date || "") || !Number.isFinite(Date.parse(date + "T00:00:00Z")) || new Date(date + "T00:00:00Z").toISOString().slice(0,10) !== date)
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date || "") || !Number.isFinite(Date.parse(date + "T00:00:00Z")) || new Date(date + "T00:00:00Z").toISOString().slice(0,10) !== date)
         return json({ ok: false, error: "Enter a valid date." }, 400, cors);
       const today = londonSnapshotDate(new Date()).date;
       if (date > today) return json({ ok: false, error: "Future dates are unavailable." }, 400, cors);
