@@ -25,11 +25,21 @@
 <input type="email" id="email" autocomplete="email" required placeholder="you@example.com">
 <button type="submit" id="email-submit">Send sign-in link</button>
 </form>
+<section id="profile-section" hidden>
+<h2>Your player profile</h2>
+<form id="profile-form">
+<label for="username">Geometry Dash username</label>
+<input id="username" name="username" minlength="3" maxlength="24" pattern="[A-Za-z0-9_]{3,24}" autocomplete="nickname" required placeholder="YourGDName">
+<label for="bio">Bio (optional, up to 300 characters)</label>
+<textarea id="bio" maxlength="300" rows="3" style="box-sizing:border-box;width:100%;padding:12px;background:#111;color:#fff;border:1px solid #777;border-radius:8px"></textarea>
+<button type="submit" id="save-profile">Save profile</button>
+</form>
+</section>
 <button type="button" id="sign-out" hidden>Sign out</button>
 <p id="auth-status" role="status" aria-live="polite"></p>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<script src="js/auth-config.js"></script>
+<script src="js/auth-config.js"></script>\n<script src="js/platform-config.js"></script>
 <script src="js/auth.js"></script>
 </body>
 </html>
