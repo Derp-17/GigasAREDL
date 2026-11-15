@@ -40,7 +40,7 @@ async function saveDailySnapshot(env, instant) {
   if (existing) return { saved: false, reason: "Snapshot already exists for " + date };
   const rows = await env.DB.prepare("SELECT id, name, creator, verifier, publisher, gd_level_id, verifier_video_url, thumbnail_url, position, points, list_status FROM levels ORDER BY position ASC, name ASC").all();
   const levels = rows.results || [];
-  await env.DB.prepare("INSERT INTO moderation_audit_log (id, actor_user_id, action, target_type, target_id, details_json, created_at) VALUES (?, NULL, 'daily_list_snapshot', 'history', ?, ?, ?)").bind(crypto.randomUUID(), date, JSON.stringify({ date, levels }), instant.toISOString()).run();
+  await env.DB.prepare("INSERT INTO moderation_audit_log (id, actor_user_id, action, target_type, target_id, details_json, created_at) VALUES (?, 'system:nightly-snapshot', 'daily_list_snapshot', 'history', ?, ?, ?)").bind(crypto.randomUUID(), date, JSON.stringify({ date, levels }), instant.toISOString()).run();
   return { saved: true, date, count: levels.length };
 }
 export default {
