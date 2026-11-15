@@ -1,7 +1,39 @@
 (() => {
-"use strict";const api=window.GIGAS_PLATFORM_CONFIG.apiBase,status=document.getElementById("history-status"),list=document.getElementById("history-list"),date=document.getElementById("history-date");date.max=new Date().toISOString().slice(0,10);date.value=date.max;
-async function load(){list.replaceChildren();status.textContent="Loading historical rankings…";try{const r=await fetch(api+"/api/history?date="+encodeURIComponent(date.value));const d=await r.json();if(!r.ok)throw Error(d.error||"History unavailable");if(!d.tracking_started){status.textContent="No saved placement snapshots exist on or before this date. An admin can start tracking below.";return;}status.textContent=d.levels.length?"Saved placements as of "+date.value+" (history is only complete after initial tracking began).":"No listed challenges recorded for this date.";for(const l of d.levels){const row=document.createElement("li"),rank=document.createElement("span"),link=document.createElement("a");rank.className="feature-rank";rank.textContent=l.position?"#"+l.position:"—";link.href="challenge.html?id="+encodeURIComponent(l.id);link.textContent=l.name;row.append(rank,link,document.createTextNode(" · "+l.list_status));list.append(row);}}catch(e){status.textContent=e.message;}}
-document.getElementById("history-load").addEventListener("click",load);
-document.getElementById("history-start").addEventListener("click",async()=>{const out=document.getElementById("start-status");out.textContent="Checking admin sign-in…";try{if(!window.supabase)throw Error("Authentication library unavailable.");const cfg=window.GIGAS_AUTH_CONFIG,client=window.supabase.createClient(cfg.supabaseUrl,cfg.supabaseAnonKey);const {data:{session}}=await client.auth.getSession();if(!session)throw Error("Sign in at the Profile page first.");const r=await fetch(api+"/api/admin/history/start",{method:"POST",headers:{Authorization:"Bearer "+session.access_token}});const d=await r.json();if(!r.ok)throw Error(d.error||"Could not start history tracking.");out.textContent=d.started?"Initial snapshot saved for "+d.count+" challenges.":d.message;await load();}catch(e){out.textContent=e.message;}});
-void load();
+  "use strict";
+  const api = window.GIGAS_PLATFORM_CONFIG.apiBase;
+  const status = document.getElementById("history-status");
+  const list = document.getElementById("history-list");
+  const date = document.getElementById("history-date");
+  const ukDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  date.max = ukDate;
+  date.value = ukDate;
+  async function load() {
+    list.replaceChildren();
+    status.textContent = "Loading historical rankings…";
+    try {
+      const response = await fetch(api + "/api/history?date=" + encodeURIComponent(date.value));
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "History unavailable");
+      if (!data.tracking_started) {
+        status.textContent = "No nightly snapshot is available for this date yet. Snapshots are saved automatically at 23:00 UK time.";
+        return;
+      }
+      status.textContent = "Showing rankings captured on " + data.snapshot_date + " at approximately 23:00 UK time." +
+        (data.exact_date ? "" : " No snapshot exists for the selected date, so the latest earlier snapshot is shown.");
+      if (!data.levels.length) status.textContent += " No listed challenges were recorded.";
+      for (const level of data.levels) {
+        const row = document.createElement("li");
+        const rank = document.createElement("span");
+        const link = document.createElement("a");
+        rank.className = "feature-rank";
+        rank.textContent = level.position ? "#" + level.position : "—";
+        link.href = "challenge.html?id=" + encodeURIComponent(level.id);
+        link.textContent = level.name;
+        row.append(rank, link, document.createTextNode(" · " + level.list_status));
+        list.append(row);
+      }
+    } catch (error) { status.textContent = error.message; }
+  }
+  document.getElementById("history-load").addEventListener("click", load);
+  void load();
 })();
