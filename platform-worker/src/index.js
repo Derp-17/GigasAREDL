@@ -301,6 +301,17 @@ export default {
       } catch { return json({ ok: false, error: "Could not load player records." }, 500, cors); }
     }
 
+
+    if (url.pathname.startsWith("/api/challenges/") && request.method === "GET") {
+      const id = decodeURIComponent(url.pathname.slice("/api/challenges/".length));
+      if (!/^[a-f0-9-]{36}$/.test(id)) return json({ ok: false, error: "Invalid challenge ID." }, 400, cors);
+      try {
+        const level = await env.DB.prepare("SELECT id, gd_level_id, name, creator, verifier, publisher, verifier_video_url, thumbnail_url, position, points, list_status FROM levels WHERE id = ? AND list_status != 'unlisted'").bind(id).first();
+        if (!level) return json({ ok: false, error: "Challenge not found." }, 404, cors);
+        const rows = await env.DB.prepare("SELECT p.display_name AS player_name, MAX(r.percent) AS percent, MIN(r.approved_at) AS approved_at FROM accepted_records r JOIN player_profiles p ON p.user_id = r.user_id WHERE r.level_id = ? AND r.percent = 100 GROUP BY r.user_id, p.display_name ORDER BY approved_at ASC LIMIT 500").bind(id).all();
+        return json({ ok: true, level, victors: rows.results || [] }, 200, cors);
+      } catch { return json({ ok: false, error: "Could not load challenge." }, 500, cors); }
+    }
     return json({ ok: false, error: "Not found." }, 404, cors);
   }
 };
