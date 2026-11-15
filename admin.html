@@ -12,7 +12,7 @@
 <label for="gd_level_id">Geometry Dash level ID</label><input id="gd_level_id" pattern="[0-9]*" maxlength="15" inputmode="numeric">
 <label for="verifier_video_url">Verifier video URL (HTTPS)</label><input id="verifier_video_url" type="url" placeholder="https://youtu.be/...">
 <label for="position">List position (optional)</label><input id="position" type="number" min="1" max="100000" step="1">
-<label for="points">Points (optional)</label><input id="points" type="number" min="0" max="1000000" step="any">
+<label for="points">Points (optional — leave blank to calculate from rank)</label><input id="points" type="number" min="0" max="1000000" step="any" placeholder="Automatic from placement"><p id="points-preview" style="font-size:12px;color:#aaa;margin:7px 0 12px" aria-live="polite">Enter a position to see automatic points.</p>
 <label for="list_status">List section</label><select id="list_status"><option value="active">Main</option><option value="extended">Extended</option><option value="legacy">Legacy</option><option value="unlisted">Unlisted</option></select>
 <button type="submit" id="save-level">Add challenge</button> <button type="button" id="cancel-edit" hidden>Cancel edit</button></form><h2>Manage challenges</h2><p id="levels-message"></p><div id="admin-level-list"></div></section></main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script><script src="js/auth-config.js"></script><script src="js/platform-config.js"></script><script src="js/admin-levels.js"></script></body></html>
