@@ -30,9 +30,11 @@
       card.href = "challenge.html?id=" + encodeURIComponent(level.id);
       const thumb = document.createElement("div");
       thumb.className = "gigas-thumb";
-      if (level.thumbnail_url && /^https:\/\//.test(level.thumbnail_url)) {
+      const thumbnailUrl = window.GigasVideo.thumbnail(level);
+      if (thumbnailUrl) {
         const img = document.createElement("img");
-        img.src = level.thumbnail_url; img.alt = ""; img.loading = "lazy";
+        img.src = thumbnailUrl; img.alt = "Verification video thumbnail for " + level.name; img.loading = "lazy"; img.referrerPolicy = "no-referrer";
+        img.addEventListener("error", () => { img.remove(); }, { once: true });
         thumb.append(img);
       }
       const rank = document.createElement("span");
