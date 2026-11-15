@@ -40,10 +40,11 @@
       thumb.append(rank);
       const body = document.createElement("div"); body.className = "gigas-body";
       const title = document.createElement("h2"); title.textContent = level.name;
-      const creator = document.createElement("p"); creator.textContent = "By " + (level.creator || "Unknown");
-      const verifier = document.createElement("p"); verifier.textContent = "Verified by " + (level.verifier || "Unknown");
-      body.append(title, creator, verifier);
-      if (level.points !== null) { const points = document.createElement("p"); points.textContent = level.points + " points"; body.append(points); }
+      const creator = document.createElement("p"); creator.className = "gigas-creator"; creator.textContent = "By " + (level.creator || "Unknown");
+      const verifier = document.createElement("p"); verifier.className = "gigas-verifier"; verifier.textContent = "Verified by " + (level.verifier || "Unknown");
+      const sectionLabel = document.createElement("span"); sectionLabel.className = "gigas-section"; sectionLabel.textContent = level.list_status === "extended" ? "Extended List" : level.list_status === "legacy" ? "Legacy List" : "Main List";
+      body.append(sectionLabel, title, creator, verifier);
+      if (level.points !== null) { const points = document.createElement("p"); points.className = "gigas-points"; points.textContent = level.points + " points"; body.append(points); }
       card.append(thumb, body); grid.append(card);
     }
     status.textContent = matches.length ? matches.length + " challenge" + (matches.length === 1 ? "" : "s") + " found." : "No challenges in this section yet.";
