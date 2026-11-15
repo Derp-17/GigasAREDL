@@ -149,6 +149,55 @@ export default {
         return json({ ok: false, error: "Submission database request failed." }, 500, cors);
       }
     }
+
+    if (url.pathname === "/api/admin/me" || url.pathname === "/api/admin/levels") {
+      if (!env.DB || !env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY)
+        return json({ ok: false, error: "Admin service unavailable." }, 503, cors);
+      let user;
+      try { user = await authenticatedUser(request, env); }
+      catch { return json({ ok: false, error: "Authentication service unavailable." }, 503, cors); }
+      if (!user) return json({ ok: false, error: "Sign in required." }, 401, cors);
+      try {
+        const access = await env.DB.prepare("SELECT role FROM moderator_roles WHERE user_id = ?").bind(user.id).first();
+        if (!access || !["owner", "admin"].includes(access.role))
+          return json({ ok: false, error: "Admin access required." }, 403, cors);
+        if (url.pathname === "/api/admin/me" && request.method === "GET")
+          return json({ ok: true, role: access.role }, 200, cors);
+        if (url.pathname === "/api/admin/levels" && request.method === "POST") {
+          if (request.headers.get("Content-Type")?.split(";")[0].trim() !== "application/json")
+            return json({ ok: false, error: "Expected JSON." }, 415, cors);
+          const raw = await request.text();
+          if (raw.length > 4096) return json({ ok: false, error: "Request too large." }, 413, cors);
+          let data;
+          try { data = JSON.parse(raw); } catch { return json({ ok: false, error: "Invalid JSON." }, 400, cors); }
+          const { name, creator = "", verifier = "", publisher = "", gd_level_id = "", verifier_video_url = "", position = null, points = null, list_status = "active" } = data || {};
+          if (typeof name !== "string" || !name.trim() || name.length > 120 ||
+              [creator, verifier, publisher].some(v => typeof v !== "string" || v.length > 120) ||
+              typeof gd_level_id !== "string" || !/^\d{0,15}$/.test(gd_level_id) ||
+              typeof verifier_video_url !== "string" || verifier_video_url.length > 2048 ||
+              (position !== null && (!Number.isInteger(position) || position < 1 || position > 100000)) ||
+              (points !== null && (typeof points !== "number" || !Number.isFinite(points) || points < 0 || points > 1000000)) ||
+              !["active", "extended", "legacy", "unlisted"].includes(list_status))
+            return json({ ok: false, error: "Invalid challenge details." }, 400, cors);
+          if (verifier_video_url) {
+            let video;
+            try { video = new URL(verifier_video_url); }
+            catch { return json({ ok: false, error: "Invalid verifier video URL." }, 400, cors); }
+            if (video.protocol !== "https:" || video.username || video.password)
+              return json({ ok: false, error: "Verifier video must be an HTTPS URL." }, 400, cors);
+          }
+          const id = crypto.randomUUID();
+          await env.DB.batch([
+            env.DB.prepare("INSERT INTO levels (id, name, creator, verifier, publisher, gd_level_id, verifier_video_url, position, points, list_status, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual')").bind(id, name.trim(), creator.trim(), verifier.trim(), publisher.trim(), gd_level_id || null, verifier_video_url || null, position, points, list_status),
+            env.DB.prepare("INSERT INTO moderation_audit_log (id, actor_user_id, action, target_type, target_id, details_json) VALUES (?, ?, 'create_level', 'level', ?, ?)").bind(crypto.randomUUID(), user.id, id, JSON.stringify({ name: name.trim(), list_status }))
+          ]);
+          return json({ ok: true, id }, 201, cors);
+        }
+        return json({ ok: false, error: "Not found." }, 404, cors);
+      } catch {
+        return json({ ok: false, error: "Admin database request failed." }, 500, cors);
+      }
+    }
     return json({ ok: false, error: "Not found." }, 404, cors);
   }
 };
