@@ -279,6 +279,21 @@ export default {
         return json({ ok: false, error: "Management request failed." }, 500, cors);
       }
     }
+
+    if (url.pathname.startsWith("/api/player-records/") && request.method === "GET") {
+      const name = decodeURIComponent(url.pathname.slice("/api/player-records/".length));
+      if (!/^[A-Za-z0-9_]{3,24}$/.test(name)) return json({ ok: false, error: "Invalid username." }, 400, cors);
+      try {
+        const player = await env.DB.prepare("SELECT user_id FROM player_profiles WHERE display_name = ? COLLATE NOCASE").bind(name).first();
+        if (!player) return json({ ok: false, error: "Player not found." }, 404, cors);
+        const rows = await env.DB.prepare("SELECT r.id, r.percent, r.evidence_url, r.approved_at, l.name AS level_name, l.id AS level_id, l.position, l.points, l.list_status FROM accepted_records r JOIN levels l ON l.id = r.level_id WHERE r.user_id = ? ORDER BY l.position IS NULL, l.position, r.approved_at DESC LIMIT 500").bind(player.user_id).all();
+        const records = rows.results || [];
+        const victories = new Map();
+        for (const r of records) if (r.percent === 100 && r.list_status !== "unlisted" && !victories.has(r.level_id)) victories.set(r.level_id, r);
+        const points = [...victories.values()].reduce((total, r) => total + (Number(r.points) || 0), 0);
+        return json({ ok: true, records, victor_count: victories.size, points }, 200, cors);
+      } catch { return json({ ok: false, error: "Could not load player records." }, 500, cors); }
+    }
     return json({ ok: false, error: "Not found." }, 404, cors);
       } catch {
         return json({ ok: false, error: "Admin database request failed." }, 500, cors);
