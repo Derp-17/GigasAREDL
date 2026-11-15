@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in | Gigas Challenge List</title>
+<link rel="stylesheet" href="css/base.css">
+<style>
+.auth-wrap{max-width:460px;margin:8vh auto;padding:28px;border:1px solid var(--border,#444);border-radius:16px;background:var(--surface,#181818);color:var(--text,#eee)}
+.auth-wrap h1{margin:0 0 10px}.auth-wrap p{line-height:1.5}.auth-wrap label{display:block;margin:18px 0 7px}
+.auth-wrap input{box-sizing:border-box;width:100%;padding:12px;border:1px solid #777;border-radius:8px;background:#111;color:#fff}
+.auth-wrap button{width:100%;padding:12px;margin-top:14px;border:0;border-radius:8px;background:#ef6b24;color:#111;font-weight:700;cursor:pointer}
+.auth-wrap button:disabled{opacity:.6;cursor:wait}.auth-wrap .discord{background:#5865f2;color:white}
+.auth-wrap a{color:inherit}.auth-wrap #auth-status{min-height:2em;margin-top:18px}
+</style>
+</head>
+<body>
+<main class="auth-wrap">
+<a href="index.html">← Back to Gigas Challenge List</a>
+<h1>Player account</h1>
+<p>Sign in with Discord or receive a secure sign-in link by email.</p>
+<button type="button" id="discord-login" class="discord">Continue with Discord</button>
+<form id="email-login">
+<label for="email">Email address</label>
+<input type="email" id="email" autocomplete="email" required placeholder="you@example.com">
+<button type="submit" id="email-submit">Send sign-in link</button>
+</form>
+<button type="button" id="sign-out" hidden>Sign out</button>
+<p id="auth-status" role="status" aria-live="polite"></p>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="js/auth-config.js"></script>
+<script src="js/auth.js"></script>
+</body>
+</html>
