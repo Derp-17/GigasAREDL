@@ -14,3 +14,7 @@ migrations_dir = "migrations"
 [vars]
 # Set this to the deployed Pages origin before enabling browser-side API calls.
 SITE_ORIGIN = "https://gigas-challenge-list.pages.dev"
+
+# Public Supabase values; never put a secret/service_role key here.
+SUPABASE_URL = "https://nnajfkanqjvtdpwiqhzh.supabase.co"
+SUPABASE_PUBLISHABLE_KEY = "sb_publishable_2esFevUmJB8QcNvVQNmc-A_74KYFq2U"
