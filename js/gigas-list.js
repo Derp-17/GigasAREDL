@@ -13,6 +13,7 @@
   const allowed = ["active", "extended", "legacy", "all"];
   const requested = new URLSearchParams(location.search).get("section");
   if (allowed.includes(requested)) section.value = requested;
+  else { const preferred = window.GigasPreferences?.get().defaultSection; if (allowed.includes(preferred)) section.value = preferred; }
   function filtered() {
     const q = search.value.trim().toLowerCase();
     return levels.filter(l => [l.name, l.creator, l.verifier, l.publisher].some(v => String(v || "").toLowerCase().includes(q)));
