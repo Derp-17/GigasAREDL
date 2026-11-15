@@ -7,7 +7,7 @@ function corsHeaders(request, env) {
   if (!origin || origin !== env.SITE_ORIGIN) return {};
   return {
     "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Methods": "GET, PUT, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, PUT, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Vary": "Origin"
   };
@@ -100,6 +100,53 @@ export default {
       } catch (error) {
         if (/UNIQUE constraint failed/i.test(String(error))) return json({ ok: false, error: "Username is already taken." }, 409, cors);
         return json({ ok: false, error: "Could not save profile." }, 500, cors);
+      }
+    }
+
+    if (url.pathname === "/api/submissions" && ["GET", "POST"].includes(request.method)) {
+      if (!env.DB || !env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY)
+        return json({ ok: false, error: "Submission service unavailable." }, 503, cors);
+      let user;
+      try { user = await authenticatedUser(request, env); }
+      catch { return json({ ok: false, error: "Authentication service unavailable." }, 503, cors); }
+      if (!user) return json({ ok: false, error: "Sign in required." }, 401, cors);
+      try {
+        if (request.method === "GET") {
+          const result = await env.DB.prepare(
+            "SELECT s.id, s.level_id, l.name AS level_name, s.percent, s.evidence_url, s.notes, s.status, s.review_note, s.submitted_at, s.reviewed_at FROM record_submissions s JOIN levels l ON l.id = s.level_id WHERE s.user_id = ? ORDER BY s.submitted_at DESC LIMIT 100"
+          ).bind(user.id).all();
+          return json({ ok: true, submissions: result.results || [] }, 200, cors);
+        }
+        if (request.headers.get("Content-Type")?.split(";")[0].trim() !== "application/json")
+          return json({ ok: false, error: "Expected JSON." }, 415, cors);
+        const body = await request.text();
+        if (body.length > 4096) return json({ ok: false, error: "Request too large." }, 413, cors);
+        let data;
+        try { data = JSON.parse(body); }
+        catch { return json({ ok: false, error: "Invalid JSON." }, 400, cors); }
+        const { level_id, percent, evidence_url, notes = "" } = data || {};
+        if (typeof level_id !== "string" || level_id.length > 128 ||
+            !Number.isInteger(percent) || percent < 1 || percent > 100 ||
+            typeof evidence_url !== "string" || evidence_url.length > 2048 ||
+            typeof notes !== "string" || notes.length > 1000)
+          return json({ ok: false, error: "Invalid submission details." }, 400, cors);
+        let evidence;
+        try { evidence = new URL(evidence_url); }
+        catch { return json({ ok: false, error: "Invalid evidence URL." }, 400, cors); }
+        if (evidence.protocol !== "https:" || !["youtube.com", "www.youtube.com", "youtu.be", "medal.tv", "www.medal.tv", "twitch.tv", "www.twitch.tv"].includes(evidence.hostname) ||
+            evidence.username || evidence.password)
+          return json({ ok: false, error: "Use an HTTPS YouTube, Medal, or Twitch video link." }, 400, cors);
+        const profile = await env.DB.prepare("SELECT user_id FROM player_profiles WHERE user_id = ?").bind(user.id).first();
+        if (!profile) return json({ ok: false, error: "Create a player profile first." }, 403, cors);
+        const level = await env.DB.prepare("SELECT id FROM levels WHERE id = ? AND list_status != 'unlisted'").bind(level_id).first();
+        if (!level) return json({ ok: false, error: "Challenge not found." }, 404, cors);
+        const existing = await env.DB.prepare("SELECT id FROM record_submissions WHERE user_id = ? AND level_id = ? AND status = 'pending' LIMIT 1").bind(user.id, level_id).first();
+        if (existing) return json({ ok: false, error: "You already have a pending submission for this challenge." }, 409, cors);
+        const id = crypto.randomUUID();
+        await env.DB.prepare("INSERT INTO record_submissions (id, user_id, level_id, percent, evidence_url, notes) VALUES (?, ?, ?, ?, ?, ?)").bind(id, user.id, level_id, percent, evidence.href, notes.trim()).run();
+        return json({ ok: true, id, status: "pending" }, 201, cors);
+      } catch {
+        return json({ ok: false, error: "Submission database request failed." }, 500, cors);
       }
     }
     return json({ ok: false, error: "Not found." }, 404, cors);
