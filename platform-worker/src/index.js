@@ -37,7 +37,7 @@ export default {
     if (url.pathname === "/api/levels" && request.method === "GET") {
       if (!env.DB) return json({ ok: false, error: "D1 binding is not configured." }, 503, cors);
       const rawLimit = Number.parseInt(url.searchParams.get("limit") || "75", 10);
-      const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 150) : 75;
+      const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 500) : 75;
       const status = url.searchParams.get("status") || "active";
       if (!new Set(["active", "extended", "legacy"]).has(status)) {
         return json({ ok: false, error: "Invalid list status." }, 400, cors);
