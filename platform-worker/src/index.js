@@ -25,6 +25,15 @@ async function authenticatedUser(request, env) {
   return typeof user.id === "string" ? user : null;
 }
 
+
+// Custom points take precedence; otherwise points follow the current rank.
+// Keep NULL in D1 for automatic values so changing placement recalculates them.
+function withCalculatedPoints(level) {
+  if (!level) return level;
+  return { ...level, points: level.points === null || level.points === undefined
+    ? (Number.isInteger(level.position) && level.position > 0 ? Math.round(100000 / level.position) / 100 : null)
+    : level.points };
+}
 function londonSnapshotDate(instant) {
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Europe/London", year: "numeric", month: "2-digit",
@@ -68,7 +77,7 @@ export default {
         const result = await env.DB.prepare(
           "SELECT id, external_aredl_id, gd_level_id, name, creator, verifier, publisher, verifier_video_url, thumbnail_url, position, points, list_status FROM levels WHERE list_status = ? ORDER BY position IS NULL, position ASC, name COLLATE NOCASE ASC LIMIT ?"
         ).bind(status, limit).all();
-        return json({ ok: true, levels: result.results || [] }, 200, cors);
+        return json({ ok: true, levels: (result.results || []).map(withCalculatedPoints) }, 200, cors);
       } catch {
         return json({ ok: false, error: "Database query failed." }, 500, cors);
       }
@@ -76,7 +85,7 @@ export default {
 
     if (url.pathname === "/api/leaderboard" && request.method === "GET") {
       try {
-        const result = await env.DB.prepare("SELECT p.display_name AS username, COUNT(DISTINCT r.level_id) AS victories, COALESCE(SUM(COALESCE(l.points, 0)), 0) AS points FROM player_profiles p JOIN (SELECT user_id, level_id FROM accepted_records WHERE percent = 100 GROUP BY user_id, level_id) r ON r.user_id = p.user_id JOIN levels l ON l.id = r.level_id AND l.list_status != 'unlisted' GROUP BY p.user_id, p.display_name ORDER BY points DESC, victories DESC, username COLLATE NOCASE ASC LIMIT 100").all();
+        const result = await env.DB.prepare("SELECT p.display_name AS username, COUNT(DISTINCT r.level_id) AS victories, ROUND(COALESCE(SUM(COALESCE(l.points, CASE WHEN l.position > 0 THEN 1000.0 / l.position ELSE 0 END)), 0), 2) AS points FROM player_profiles p JOIN (SELECT user_id, level_id FROM accepted_records WHERE percent = 100 GROUP BY user_id, level_id) r ON r.user_id = p.user_id JOIN levels l ON l.id = r.level_id AND l.list_status != 'unlisted' GROUP BY p.user_id, p.display_name ORDER BY points DESC, victories DESC, username COLLATE NOCASE ASC LIMIT 100").all();
         return json({ ok: true, players: result.results || [] }, 200, cors);
       } catch { return json({ ok: false, error: "Could not load leaderboard." }, 500, cors); }
     }
@@ -341,7 +350,7 @@ export default {
         const player = await env.DB.prepare("SELECT user_id FROM player_profiles WHERE display_name = ? COLLATE NOCASE").bind(name).first();
         if (!player) return json({ ok: false, error: "Player not found." }, 404, cors);
         const rows = await env.DB.prepare("SELECT r.id, r.percent, r.evidence_url, r.approved_at, l.name AS level_name, l.id AS level_id, l.position, l.points, l.list_status FROM accepted_records r JOIN levels l ON l.id = r.level_id WHERE r.user_id = ? ORDER BY l.position IS NULL, l.position, r.approved_at DESC LIMIT 500").bind(player.user_id).all();
-        const records = rows.results || [];
+        const records = (rows.results || []).map(withCalculatedPoints);
         const victories = new Map();
         for (const r of records) if (r.percent === 100 && r.list_status !== "unlisted" && !victories.has(r.level_id)) victories.set(r.level_id, r);
         const points = [...victories.values()].reduce((total, r) => total + (Number(r.points) || 0), 0);
@@ -357,7 +366,7 @@ export default {
         const level = await env.DB.prepare("SELECT id, gd_level_id, name, creator, verifier, publisher, verifier_video_url, thumbnail_url, position, points, list_status FROM levels WHERE id = ? AND list_status != 'unlisted'").bind(id).first();
         if (!level) return json({ ok: false, error: "Challenge not found." }, 404, cors);
         const rows = await env.DB.prepare("SELECT p.display_name AS player_name, MAX(r.percent) AS percent, MIN(r.approved_at) AS approved_at FROM accepted_records r JOIN player_profiles p ON p.user_id = r.user_id WHERE r.level_id = ? AND r.percent = 100 GROUP BY r.user_id, p.display_name ORDER BY approved_at ASC LIMIT 500").bind(id).all();
-        return json({ ok: true, level, victors: rows.results || [] }, 200, cors);
+        return json({ ok: true, level: withCalculatedPoints(level), victors: rows.results || [] }, 200, cors);
       } catch { return json({ ok: false, error: "Could not load challenge." }, 500, cors); }
     }
     return json({ ok: false, error: "Not found." }, 404, cors);
