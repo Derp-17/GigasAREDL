@@ -194,6 +194,12 @@ export default {
           return json({ ok: true, id }, 201, cors);
         }
     
+        return json({ ok: false, error: "Not found." }, 404, cors);
+      } catch {
+        return json({ ok: false, error: "Admin database request failed." }, 500, cors);
+      }
+    }
+
     // All management routes are protected server-side, regardless of frontend visibility.
     if (url.pathname === "/api/admin/levels/all" || /^\/api\/admin\/levels\/[^/]+$/.test(url.pathname) ||
         url.pathname === "/api/admin/submissions" || /^\/api\/admin\/submissions\/[^/]+$/.test(url.pathname)) {
@@ -294,11 +300,7 @@ export default {
         return json({ ok: true, records, victor_count: victories.size, points }, 200, cors);
       } catch { return json({ ok: false, error: "Could not load player records." }, 500, cors); }
     }
-    return json({ ok: false, error: "Not found." }, 404, cors);
-      } catch {
-        return json({ ok: false, error: "Admin database request failed." }, 500, cors);
-      }
-    }
+
     return json({ ok: false, error: "Not found." }, 404, cors);
   }
 };
