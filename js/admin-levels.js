@@ -20,11 +20,22 @@
   let levels = [];
   const value = id => document.getElementById(id).value.trim();
   function resetEdit() {
-    editing = null; form.reset();
+    editing = null; form.reset(); updatePointsPreview();
     document.getElementById("form-title").textContent = "Add a challenge";
     save.textContent = "Add challenge";
     document.getElementById("cancel-edit").hidden = true;
   }
+  function updatePointsPreview() {
+    const position = Number(value("position"));
+    const custom = value("points");
+    const preview = document.getElementById("points-preview");
+    if (custom !== "") preview.textContent = "Custom points: " + Number(custom).toLocaleString();
+    else if (Number.isInteger(position) && position > 0)
+      preview.textContent = "Automatic points: " + (Math.round(100000 / position) / 100).toLocaleString(undefined, { maximumFractionDigits: 2 }) + " (1,000 ÷ #" + position + ")";
+    else preview.textContent = "Enter a position to calculate points automatically.";
+  }
+  document.getElementById("position").addEventListener("input", updatePointsPreview);
+  document.getElementById("points").addEventListener("input", updatePointsPreview);
   document.getElementById("cancel-edit").addEventListener("click", resetEdit);
   async function refreshLevels() {
     const data = await apiRequest("/api/admin/levels/all");
@@ -41,6 +52,7 @@
         editing = level.id;
         for (const id of ["name", "creator", "verifier", "publisher", "gd_level_id", "verifier_video_url", "position", "points", "list_status"])
           document.getElementById(id).value = level[id] ?? "";
+        updatePointsPreview();
         document.getElementById("form-title").textContent = "Edit " + level.name;
         save.textContent = "Save changes";
         document.getElementById("cancel-edit").hidden = false;
