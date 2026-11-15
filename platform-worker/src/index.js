@@ -214,7 +214,8 @@ export default {
           const id = crypto.randomUUID();
           await env.DB.batch([
             env.DB.prepare("INSERT INTO levels (id, name, creator, verifier, publisher, gd_level_id, verifier_video_url, position, points, list_status, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual')").bind(id, name.trim(), creator.trim(), verifier.trim(), publisher.trim(), gd_level_id || null, verifier_video_url || null, position, points, list_status),
-            env.DB.prepare("INSERT INTO moderation_audit_log (id, actor_user_id, action, target_type, target_id, details_json) VALUES (?, ?, 'create_level', 'level', ?, ?)").bind(crypto.randomUUID(), user.id, id, JSON.stringify({ id, name: name.trim(), creator: creator.trim(), verifier: verifier.trim(), publisher: publisher.trim(), gd_level_id, verifier_video_url, position, points, list_status }))
+            env.DB.prepare("INSERT INTO moderation_audit_log (id, actor_user_id, action, target_type, target_id, details_json) VALUES (?, ?, 'create_level', 'level', ?, ?)").bind(crypto.randomUUID(), user.id, id, JSON.stringify({ id, name: name.trim(), creator: creator.trim(), verifier: verifier.trim(), publisher: publisher.trim(), gd_level_id, verifier_video_url, position, points, list_status })),
+            env.DB.prepare("INSERT INTO moderation_audit_log (id, actor_user_id, action, target_type, target_id, details_json) VALUES (?, ?, 'level_snapshot', 'level', ?, ?)").bind(crypto.randomUUID(), user.id, id, JSON.stringify({ id, name: name.trim(), creator: creator.trim(), verifier: verifier.trim(), publisher: publisher.trim(), gd_level_id, verifier_video_url, position, points, list_status }))
           ]);
           return json({ ok: true, id }, 201, cors);
         }
@@ -233,11 +234,12 @@ export default {
       try {
         const role = await env.DB.prepare("SELECT role FROM moderator_roles WHERE user_id = ?").bind(user.id).first();
         if (!role || !["owner","admin"].includes(role.role)) return json({ ok: false, error: "Admin access required." }, 403, cors);
-        const previous = await env.DB.prepare("SELECT id FROM moderation_audit_log WHERE action = 'level_snapshot' LIMIT 1").first();
+        const previous = await env.DB.prepare("SELECT id FROM moderation_audit_log WHERE action = 'history_started' LIMIT 1").first();
         if (previous) return json({ ok: true, started: false, message: "History tracking has already started." }, 200, cors);
         const rows = await env.DB.prepare("SELECT id, name, creator, verifier, publisher, gd_level_id, verifier_video_url, thumbnail_url, position, points, list_status FROM levels LIMIT 500").all();
         const events = (rows.results || []).map(level => env.DB.prepare("INSERT INTO moderation_audit_log (id, actor_user_id, action, target_type, target_id, details_json) VALUES (?, ?, 'level_snapshot', 'level', ?, ?)").bind(crypto.randomUUID(), user.id, level.id, JSON.stringify(level)));
-        if (events.length) await env.DB.batch(events);
+        events.push(env.DB.prepare("INSERT INTO moderation_audit_log (id, actor_user_id, action, target_type, target_id, details_json) VALUES (?, ?, 'history_started', 'history', ?, '{}')").bind(crypto.randomUUID(), user.id, "baseline"));
+        await env.DB.batch(events);
         return json({ ok: true, started: true, count: events.length }, 200, cors);
       } catch { return json({ ok: false, error: "Could not start history tracking." }, 500, cors); }
     }
@@ -276,7 +278,8 @@ export default {
             if (records.count > 0) return json({ ok: false, error: "Challenge has submissions. Set its section to Unlisted instead to preserve player records." }, 409, cors);
             await env.DB.batch([
               env.DB.prepare("DELETE FROM levels WHERE id = ? AND NOT EXISTS (SELECT 1 FROM record_submissions WHERE level_id = ?)").bind(id, id),
-              env.DB.prepare("INSERT INTO moderation_audit_log (id, actor_user_id, action, target_type, target_id, details_json) VALUES (?, ?, 'delete_level', 'level', ?, ?)").bind(crypto.randomUUID(), user.id, id, JSON.stringify({ name: old.name }))
+              env.DB.prepare("INSERT INTO moderation_audit_log (id, actor_user_id, action, target_type, target_id, details_json) VALUES (?, ?, 'delete_level', 'level', ?, ?)").bind(crypto.randomUUID(), user.id, id, JSON.stringify({ name: old.name })),
+              env.DB.prepare("INSERT INTO moderation_audit_log (id, actor_user_id, action, target_type, target_id, details_json) VALUES (?, ?, 'level_snapshot', 'level', ?, ?)").bind(crypto.randomUUID(), user.id, id, JSON.stringify({ ...old, list_status: "deleted" }))
             ]);
             return json({ ok: true }, 200, cors);
           }
@@ -300,7 +303,8 @@ export default {
           }
           await env.DB.batch([
             env.DB.prepare("UPDATE levels SET name=?, creator=?, verifier=?, publisher=?, gd_level_id=?, verifier_video_url=?, position=?, points=?, list_status=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id=?").bind(name.trim(), creator.trim(), verifier.trim(), publisher.trim(), gd_level_id || null, verifier_video_url || null, position, points, list_status, id),
-            env.DB.prepare("INSERT INTO moderation_audit_log (id, actor_user_id, action, target_type, target_id, details_json) VALUES (?, ?, 'edit_level', 'level', ?, ?)").bind(crypto.randomUUID(), user.id, id, JSON.stringify({ name: name.trim(), list_status }))
+            env.DB.prepare("INSERT INTO moderation_audit_log (id, actor_user_id, action, target_type, target_id, details_json) VALUES (?, ?, 'edit_level', 'level', ?, ?)").bind(crypto.randomUUID(), user.id, id, JSON.stringify({ name: name.trim(), list_status })),
+            env.DB.prepare("INSERT INTO moderation_audit_log (id, actor_user_id, action, target_type, target_id, details_json) VALUES (?, ?, 'level_snapshot', 'level', ?, ?)").bind(crypto.randomUUID(), user.id, id, JSON.stringify({ ...old, name: name.trim(), creator: creator.trim(), verifier: verifier.trim(), publisher: publisher.trim(), gd_level_id, verifier_video_url, position, points, list_status }))
           ]);
           return json({ ok: true }, 200, cors);
         }
