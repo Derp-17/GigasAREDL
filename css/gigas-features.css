@@ -42,3 +42,6 @@
   .feature-nav{gap:7px;padding:12px}
   .feature-nav a{padding:8px 11px;min-height:38px;font-size:12px}
 }
+
+/* Explicitly preserve hidden links even where navigation CSS sets display. */
+a[hidden]{display:none!important}
