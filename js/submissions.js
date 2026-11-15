@@ -67,6 +67,8 @@
           levelSelect.append(option);
         }
       }
+      const requestedLevel = new URLSearchParams(location.search).get("level");
+      if (requestedLevel && [...levelSelect.options].some(option => option.value === requestedLevel)) levelSelect.value = requestedLevel;
       form.hidden = false;
       if (levelSelect.options.length === 1) status.textContent += " — No challenges have been added yet.";
       await loadHistory();
