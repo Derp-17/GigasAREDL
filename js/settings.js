@@ -189,6 +189,12 @@ const Settings = (() => {
       </div>
       <div class="settings-body">
         ${SCHEMA.map(rowHtml).join('')}
+        <div class="settings-divider"></div>
+        <div class="settings-sync">
+          <span class="settings-title">Player account</span>
+          <span class="settings-desc" id="settings-profile-status">Sign in to view your profile.</span>
+          <a class="btn-ghost" id="settings-profile-link" href="auth.html">Sign in / Manage profile</a>
+        </div>
         ${typeof AredlSync !== 'undefined' ? syncSectionHtml() : ''}
       </div>
     </div>
@@ -231,7 +237,47 @@ const Settings = (() => {
     headerActions.appendChild(fab);
     document.body.appendChild(overlay);
 
-    function openPanel() { overlay.classList.add('open'); }
+
+    async function updateProfileLink() {
+      const link = overlay.querySelector('#settings-profile-link');
+      const status = overlay.querySelector('#settings-profile-status');
+      try {
+        async function loadScript(src) {
+          await new Promise((resolve, reject) => {
+            const el = document.createElement('script');
+            el.src = src; el.onload = resolve; el.onerror = reject;
+            document.head.appendChild(el);
+          });
+        }
+        if (!window.supabase) await loadScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js');
+        if (!window.GIGAS_AUTH_CONFIG) await loadScript('js/auth-config.js');
+        if (!window.GIGAS_PLATFORM_CONFIG) await loadScript('js/platform-config.js');
+        const cfg = window.GIGAS_AUTH_CONFIG;
+        const api = window.GIGAS_PLATFORM_CONFIG.apiBase;
+        const client = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
+        const { data: { session } } = await client.auth.getSession();
+        if (!session?.access_token) {
+          status.textContent = 'Sign in to create or view your player profile.';
+          return;
+        }
+        const response = await fetch(api + '/api/me', {
+          headers: { Authorization: 'Bearer ' + session.access_token }
+        });
+        if (!response.ok) throw new Error('Profile request failed');
+        const { profile } = await response.json();
+        if (profile?.display_name) {
+          status.textContent = 'Signed in as ' + profile.display_name;
+          link.textContent = 'View my profile';
+          link.href = 'player.html?name=' + encodeURIComponent(profile.display_name);
+        } else {
+          status.textContent = 'Signed in. Create your player profile.';
+          link.textContent = 'Create my profile';
+        }
+      } catch {
+        status.textContent = 'Unable to check account right now.';
+      }
+    }
+    function openPanel() { overlay.classList.add('open'); void updateProfileLink(); }
     function closePanel() { overlay.classList.remove('open'); }
 
     fab.addEventListener('click', openPanel);
