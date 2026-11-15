@@ -1,2 +1,4 @@
-// Public API endpoint. Set to your deployed gigas-challenge-list-api workers.dev URL.
-window.GIGAS_PLATFORM_CONFIG = { apiBase: "" };
+// Public API endpoint for Gigas Challenge List.
+window.GIGAS_PLATFORM_CONFIG = {
+  apiBase: "https://gigas-challenge-list-api.thatvrplayah72.workers.dev"
+};
