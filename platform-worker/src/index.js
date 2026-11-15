@@ -51,6 +51,31 @@ export default {
         return json({ ok: false, error: "Database query failed." }, 500, cors);
       }
     }
+
+    if (url.pathname === "/api/leaderboard" && request.method === "GET") {
+      try {
+        const result = await env.DB.prepare("SELECT p.display_name AS username, COUNT(DISTINCT r.level_id) AS victories, COALESCE(SUM(COALESCE(l.points, 0)), 0) AS points FROM player_profiles p JOIN (SELECT user_id, level_id FROM accepted_records WHERE percent = 100 GROUP BY user_id, level_id) r ON r.user_id = p.user_id JOIN levels l ON l.id = r.level_id AND l.list_status != 'unlisted' GROUP BY p.user_id, p.display_name ORDER BY points DESC, victories DESC, username COLLATE NOCASE ASC LIMIT 100").all();
+        return json({ ok: true, players: result.results || [] }, 200, cors);
+      } catch { return json({ ok: false, error: "Could not load leaderboard." }, 500, cors); }
+    }
+    if (url.pathname === "/api/history" && request.method === "GET") {
+      const date = url.searchParams.get("date");
+      if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date || "") || !Number.isFinite(Date.parse(date + "T00:00:00Z")) || new Date(date + "T00:00:00Z").toISOString().slice(0,10) !== date)
+        return json({ ok: false, error: "Enter a valid date." }, 400, cors);
+      if (date > new Date().toISOString().slice(0,10)) return json({ ok: false, error: "Future dates are unavailable." }, 400, cors);
+      try {
+        const rows = await env.DB.prepare("SELECT action, target_id, details_json, created_at FROM moderation_audit_log WHERE action = 'level_snapshot' AND created_at < ? ORDER BY created_at ASC LIMIT 10000").bind(date + "T23:59:59.999Z").all();
+        const byId = new Map();
+        let first = null;
+        for (const event of rows.results || []) {
+          if (!first) first = event.created_at.slice(0, 10);
+          try { const level = JSON.parse(event.details_json); if (level && level.id) byId.set(level.id, level); } catch {}
+        }
+        const levels = [...byId.values()].filter(l => ["active","extended","legacy"].includes(l.list_status))
+          .sort((a,b) => (a.position ?? Infinity) - (b.position ?? Infinity) || a.name.localeCompare(b.name));
+        return json({ ok: true, levels, earliest_available: first, tracking_started: (rows.results || []).length > 0, limited_history: true }, 200, cors);
+      } catch { return json({ ok: false, error: "Could not load historical rankings." }, 500, cors); }
+    }
     if (url.pathname.startsWith("/api/players/") && request.method === "GET") {
       const username = decodeURIComponent(url.pathname.slice("/api/players/".length));
       if (!/^[A-Za-z0-9_]{3,24}$/.test(username)) return json({ ok: false, error: "Invalid username." }, 400, cors);
@@ -189,7 +214,7 @@ export default {
           const id = crypto.randomUUID();
           await env.DB.batch([
             env.DB.prepare("INSERT INTO levels (id, name, creator, verifier, publisher, gd_level_id, verifier_video_url, position, points, list_status, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual')").bind(id, name.trim(), creator.trim(), verifier.trim(), publisher.trim(), gd_level_id || null, verifier_video_url || null, position, points, list_status),
-            env.DB.prepare("INSERT INTO moderation_audit_log (id, actor_user_id, action, target_type, target_id, details_json) VALUES (?, ?, 'create_level', 'level', ?, ?)").bind(crypto.randomUUID(), user.id, id, JSON.stringify({ name: name.trim(), list_status }))
+            env.DB.prepare("INSERT INTO moderation_audit_log (id, actor_user_id, action, target_type, target_id, details_json) VALUES (?, ?, 'create_level', 'level', ?, ?)").bind(crypto.randomUUID(), user.id, id, JSON.stringify({ id, name: name.trim(), creator: creator.trim(), verifier: verifier.trim(), publisher: publisher.trim(), gd_level_id, verifier_video_url, position, points, list_status }))
           ]);
           return json({ ok: true, id }, 201, cors);
         }
@@ -198,6 +223,23 @@ export default {
       } catch {
         return json({ ok: false, error: "Admin database request failed." }, 500, cors);
       }
+    }
+
+
+    if (url.pathname === "/api/admin/history/start" && request.method === "POST") {
+      let user;
+      try { user = await authenticatedUser(request, env); } catch { return json({ ok: false, error: "Authentication unavailable." }, 503, cors); }
+      if (!user) return json({ ok: false, error: "Sign in required." }, 401, cors);
+      try {
+        const role = await env.DB.prepare("SELECT role FROM moderator_roles WHERE user_id = ?").bind(user.id).first();
+        if (!role || !["owner","admin"].includes(role.role)) return json({ ok: false, error: "Admin access required." }, 403, cors);
+        const previous = await env.DB.prepare("SELECT id FROM moderation_audit_log WHERE action = 'level_snapshot' LIMIT 1").first();
+        if (previous) return json({ ok: true, started: false, message: "History tracking has already started." }, 200, cors);
+        const rows = await env.DB.prepare("SELECT id, name, creator, verifier, publisher, gd_level_id, verifier_video_url, thumbnail_url, position, points, list_status FROM levels LIMIT 500").all();
+        const events = (rows.results || []).map(level => env.DB.prepare("INSERT INTO moderation_audit_log (id, actor_user_id, action, target_type, target_id, details_json) VALUES (?, ?, 'level_snapshot', 'level', ?, ?)").bind(crypto.randomUUID(), user.id, level.id, JSON.stringify(level)));
+        if (events.length) await env.DB.batch(events);
+        return json({ ok: true, started: true, count: events.length }, 200, cors);
+      } catch { return json({ ok: false, error: "Could not start history tracking." }, 500, cors); }
     }
 
     // All management routes are protected server-side, regardless of frontend visibility.
