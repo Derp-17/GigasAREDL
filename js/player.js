@@ -25,7 +25,35 @@
         document.getElementById("player-bio").textContent = profile.bio;
         document.getElementById("player-bio").hidden = false;
       }
-      // Records and points are placeholders until approved-record APIs are implemented.
+      fetch(apiBase.replace(/\/$/, "") + "/api/player-records/" + encodeURIComponent(name))
+        .then(async response => {
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "Could not load records.");
+          return data;
+        })
+        .then(data => {
+          document.getElementById("approved-count").textContent = data.records.length;
+          document.getElementById("victor-count").textContent = data.victor_count;
+          document.getElementById("player-points").textContent = data.points.toLocaleString();
+          document.getElementById("records-empty").hidden = data.records.length > 0;
+          const container = document.getElementById("player-records");
+          container.replaceChildren();
+          for (const record of data.records) {
+            const row = document.createElement("p");
+            const link = document.createElement("a");
+            link.href = record.evidence_url;
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            link.textContent = record.level_name + " — " + record.percent + "%";
+            row.append(link);
+            if (record.percent === 100) row.append(" · Victor");
+            container.append(row);
+          }
+        })
+        .catch(error => {
+          document.getElementById("records-empty").textContent = error.message;
+          document.getElementById("records-empty").hidden = false;
+        });
       document.getElementById("stats").hidden = false;
       document.getElementById("records-title").hidden = false;
       document.getElementById("records-empty").hidden = false;
