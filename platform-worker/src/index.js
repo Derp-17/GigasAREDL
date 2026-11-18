@@ -156,6 +156,75 @@ export default {
       }
     }
 
+
+    // Authenticated support requests, staff replies, and account-data export.
+    if (url.pathname === "/api/support/tickets" || /^\\/api\\/support\\/tickets\\/[^/]+$/.test(url.pathname) ||
+        url.pathname === "/api/admin/support/tickets" || /^\\/api\\/admin\\/support\\/tickets\\/[^/]+$/.test(url.pathname) ||
+        url.pathname === "/api/account/export" || url.pathname === "/api/account/delete-request") {
+      if (!env.DB || !env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY)
+        return json({ ok: false, error: "Account service unavailable." }, 503, cors);
+      let user;
+      try { user = await authenticatedUser(request, env); }
+      catch { return json({ ok: false, error: "Authentication service unavailable." }, 503, cors); }
+      if (!user) return json({ ok: false, error: "Sign in required." }, 401, cors);
+      const adminRoute = url.pathname.startsWith("/api/admin/");
+      try {
+        if (adminRoute) {
+          const role = await env.DB.prepare("SELECT role FROM moderator_roles WHERE user_id = ?").bind(user.id).first();
+          if (!role || !["owner","admin","moderator"].includes(role.role))
+            return json({ ok: false, error: "Staff access required." }, 403, cors);
+        }
+        if (url.pathname === "/api/account/export" && request.method === "GET") {
+          const [profile, submissions, records, tickets] = await Promise.all([
+            env.DB.prepare("SELECT display_name,bio,avatar_url,created_at,updated_at FROM player_profiles WHERE user_id = ?").bind(user.id).first(),
+            env.DB.prepare("SELECT id,level_id,percent,evidence_url,notes,status,review_note,submitted_at,reviewed_at FROM record_submissions WHERE user_id = ? ORDER BY submitted_at DESC").bind(user.id).all(),
+            env.DB.prepare("SELECT id,level_id,percent,evidence_url,approved_at FROM accepted_records WHERE user_id = ? ORDER BY approved_at DESC").bind(user.id).all(),
+            env.DB.prepare("SELECT id,category,subject,message,status,staff_reply,created_at,updated_at FROM support_tickets WHERE user_id = ? ORDER BY created_at DESC").bind(user.id).all()
+          ]);
+          return json({ exported_at: new Date().toISOString(), account: { id: user.id, email: user.email || null }, profile: profile || null, submissions: submissions.results || [], accepted_records: records.results || [], support_tickets: tickets.results || [] }, 200, cors);
+        }
+        if ((url.pathname === "/api/support/tickets" || url.pathname === "/api/admin/support/tickets") && request.method === "GET") {
+          const staff = adminRoute;
+          const rows = await env.DB.prepare(staff
+            ? "SELECT t.*, COALESCE(p.display_name,'Unknown player') AS player_name FROM support_tickets t LEFT JOIN player_profiles p ON p.user_id=t.user_id ORDER BY CASE WHEN t.status='open' THEN 0 WHEN t.status='in_progress' THEN 1 ELSE 2 END,t.created_at DESC LIMIT 200"
+            : "SELECT id,category,subject,message,status,staff_reply,created_at,updated_at FROM support_tickets WHERE user_id=? ORDER BY created_at DESC LIMIT 100");
+          const result = await (staff ? rows.all() : rows.bind(user.id).all());
+          return json({ ok: true, tickets: result.results || [] }, 200, cors);
+        }
+        if ((url.pathname === "/api/support/tickets" || url.pathname === "/api/account/delete-request") && request.method === "POST") {
+          if (!request.headers.get("Content-Type")?.startsWith("application/json")) return json({ ok:false,error:"Expected JSON." },415,cors);
+          const raw = await request.text();
+          if (raw.length > 5000) return json({ ok:false,error:"Request too large." },413,cors);
+          let data; try { data=JSON.parse(raw); } catch { return json({ok:false,error:"Invalid JSON."},400,cors); }
+          const deletion = url.pathname === "/api/account/delete-request";
+          const category = deletion ? "deletion" : data?.category;
+          const subject = deletion ? "Account deletion request" : data?.subject?.trim();
+          const message = deletion ? "Please delete my player data and Supabase authentication account. Contact me through this ticket if verification is needed." : data?.message?.trim();
+          if (!["bug","appeal","account","general","deletion"].includes(category) || typeof subject !== "string" || subject.length < 3 || subject.length > 120 || typeof message !== "string" || message.length < 10 || message.length > 3000)
+            return json({ok:false,error:"Check the category, subject (3–120 characters) and message (10–3000 characters)."},400,cors);
+          if (category === "deletion") {
+            const existing = await env.DB.prepare("SELECT id FROM support_tickets WHERE user_id=? AND category='deletion' AND status IN ('open','in_progress') LIMIT 1").bind(user.id).first();
+            if (existing) return json({ok:true,id:existing.id,existing:true,status:"open"},200,cors);
+          }
+          const id=crypto.randomUUID();
+          await env.DB.prepare("INSERT INTO support_tickets(id,user_id,category,subject,message) VALUES(?,?,?,?,?)").bind(id,user.id,category,subject,message).run();
+          return json({ok:true,id,status:"open"},201,cors);
+        }
+        if (adminRoute && request.method === "PUT" && /^\\/api\\/admin\\/support\\/tickets\\/[^/]+$/.test(url.pathname)) {
+          if (!request.headers.get("Content-Type")?.startsWith("application/json")) return json({ok:false,error:"Expected JSON."},415,cors);
+          const raw=await request.text(); if(raw.length>2500)return json({ok:false,error:"Request too large."},413,cors);
+          let data; try{data=JSON.parse(raw);}catch{return json({ok:false,error:"Invalid JSON."},400,cors);}
+          if (!["open","in_progress","resolved","closed"].includes(data?.status) || typeof data.staff_reply!=="string" || data.staff_reply.length>1500)
+            return json({ok:false,error:"Invalid status or reply."},400,cors);
+          const id=decodeURIComponent(url.pathname.slice("/api/admin/support/tickets/".length));
+          const result=await env.DB.prepare("UPDATE support_tickets SET status=?,staff_reply=?,assigned_staff=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?").bind(data.status,data.staff_reply,user.id,id).run();
+          if (!result.meta.changes) return json({ok:false,error:"Ticket not found."},404,cors);
+          return json({ok:true},200,cors);
+        }
+        return json({ok:false,error:"Not found."},404,cors);
+      } catch { return json({ok:false,error:"Support database unavailable. Check migration 0002."},503,cors); }
+    }
+
     if (url.pathname === "/api/submissions" && ["GET", "POST"].includes(request.method)) {
       if (!env.DB || !env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY)
         return json({ ok: false, error: "Submission service unavailable." }, 503, cors);
