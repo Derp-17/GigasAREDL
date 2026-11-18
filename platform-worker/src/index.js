@@ -158,8 +158,8 @@ export default {
 
 
     // Authenticated support requests, staff replies, and account-data export.
-    if (url.pathname === "/api/support/tickets" || /^\\/api\\/support\\/tickets\\/[^/]+$/.test(url.pathname) ||
-        url.pathname === "/api/admin/support/tickets" || /^\\/api\\/admin\\/support\\/tickets\\/[^/]+$/.test(url.pathname) ||
+    if (url.pathname === "/api/support/tickets" || /^\/api\/support\/tickets\/[^/]+$/.test(url.pathname) ||
+        url.pathname === "/api/admin/support/tickets" || /^\/api\/admin\/support\/tickets\/[^/]+$/.test(url.pathname) ||
         url.pathname === "/api/account/export" || url.pathname === "/api/account/delete-request") {
       if (!env.DB || !env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY)
         return json({ ok: false, error: "Account service unavailable." }, 503, cors);
@@ -210,7 +210,7 @@ export default {
           await env.DB.prepare("INSERT INTO support_tickets(id,user_id,category,subject,message) VALUES(?,?,?,?,?)").bind(id,user.id,category,subject,message).run();
           return json({ok:true,id,status:"open"},201,cors);
         }
-        if (adminRoute && request.method === "PUT" && /^\\/api\\/admin\\/support\\/tickets\\/[^/]+$/.test(url.pathname)) {
+        if (adminRoute && request.method === "PUT" && /^\/api\/admin\/support\/tickets\/[^/]+$/.test(url.pathname)) {
           if (!request.headers.get("Content-Type")?.startsWith("application/json")) return json({ok:false,error:"Expected JSON."},415,cors);
           const raw=await request.text(); if(raw.length>2500)return json({ok:false,error:"Request too large."},413,cors);
           let data; try{data=JSON.parse(raw);}catch{return json({ok:false,error:"Invalid JSON."},400,cors);}
