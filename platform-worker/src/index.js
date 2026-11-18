@@ -7,7 +7,7 @@ function corsHeaders(request, env) {
   if (!origin || origin !== env.SITE_ORIGIN) return {};
   return {
     "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Methods": "GET, PUT, POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, PUT, POST, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Vary": "Origin"
   };
@@ -203,7 +203,7 @@ export default {
       }
     }
 
-    if (url.pathname === "/api/admin/me" || url.pathname === "/api/admin/levels") {
+    if (url.pathname === "/api/admin/me" || url.pathname === "/api/admin/levels" || url.pathname === "/api/admin/users") {
       if (!env.DB || !env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY)
         return json({ ok: false, error: "Admin service unavailable." }, 503, cors);
       let user;
@@ -212,10 +212,26 @@ export default {
       if (!user) return json({ ok: false, error: "Sign in required." }, 401, cors);
       try {
         const access = await env.DB.prepare("SELECT role FROM moderator_roles WHERE user_id = ?").bind(user.id).first();
-        if (!access || !["owner", "admin"].includes(access.role))
+        if (!access || !["owner", "admin", "moderator"].includes(access.role))
           return json({ ok: false, error: "Admin access required." }, 403, cors);
         if (url.pathname === "/api/admin/me" && request.method === "GET")
           return json({ ok: true, role: access.role }, 200, cors);
+        if (url.pathname === "/api/admin/users" && request.method === "GET") {
+          // Staff can browse registered player profiles, never auth tokens or emails.
+          const limit = 100;
+          const offset = Number(url.searchParams.get("offset") || "0");
+          if (!Number.isSafeInteger(offset) || offset < 0 || offset > 100000)
+            return json({ ok: false, error: "Invalid page offset." }, 400, cors);
+          const query = (url.searchParams.get("q") || "").trim();
+          if (query.length > 80) return json({ ok: false, error: "Search is too long." }, 400, cors);
+          const pattern = "%" + query.replace(/[\\%_]/g, "\\if (url.pathname === "/api/admin/me" && request.method === "GET")
+          return json({ ok: true, role: access.role }, 200, cors);") + "%";
+          const count = await env.DB.prepare("SELECT COUNT(*) AS total FROM player_profiles WHERE display_name LIKE ? ESCAPE '\\'").bind(pattern).first();
+          const rows = await env.DB.prepare("SELECT p.display_name, p.avatar_url, p.created_at, r.role FROM player_profiles p LEFT JOIN moderator_roles r ON r.user_id = p.user_id WHERE p.display_name LIKE ? ESCAPE '\\' ORDER BY p.created_at DESC LIMIT ? OFFSET ?").bind(pattern, limit, offset).all();
+          return json({ ok: true, users: rows.results || [], total: count.total, limit, offset }, 200, cors);
+        }
+        if (url.pathname === "/api/admin/levels" && !["owner", "admin"].includes(access.role))
+          return json({ ok: false, error: "Admin access required." }, 403, cors);
         if (url.pathname === "/api/admin/levels" && request.method === "POST") {
           if (request.headers.get("Content-Type")?.split(";")[0].trim() !== "application/json")
             return json({ ok: false, error: "Expected JSON." }, 415, cors);
