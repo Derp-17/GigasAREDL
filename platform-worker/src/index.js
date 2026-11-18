@@ -224,8 +224,7 @@ export default {
             return json({ ok: false, error: "Invalid page offset." }, 400, cors);
           const query = (url.searchParams.get("q") || "").trim();
           if (query.length > 80) return json({ ok: false, error: "Search is too long." }, 400, cors);
-          const pattern = "%" + query.replace(/[\\%_]/g, "\\if (url.pathname === "/api/admin/me" && request.method === "GET")
-          return json({ ok: true, role: access.role }, 200, cors);") + "%";
+          const pattern = "%" + query.replace(/[\\%_]/g, character => "\\" + character) + "%";
           const count = await env.DB.prepare("SELECT COUNT(*) AS total FROM player_profiles WHERE display_name LIKE ? ESCAPE '\\'").bind(pattern).first();
           const rows = await env.DB.prepare("SELECT p.display_name, p.avatar_url, p.created_at, r.role FROM player_profiles p LEFT JOIN moderator_roles r ON r.user_id = p.user_id WHERE p.display_name LIKE ? ESCAPE '\\' ORDER BY p.created_at DESC LIMIT ? OFFSET ?").bind(pattern, limit, offset).all();
           return json({ ok: true, users: rows.results || [], total: count.total, limit, offset }, 200, cors);
