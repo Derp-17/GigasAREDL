@@ -52,9 +52,33 @@ async function saveDailySnapshot(env, instant) {
   await env.DB.prepare("INSERT INTO moderation_audit_log (id, actor_user_id, action, target_type, target_id, details_json, created_at) VALUES (?, 'system:nightly-snapshot', 'daily_list_snapshot', 'history', ?, ?, ?)").bind(crypto.randomUUID(), date, JSON.stringify({ date, levels }), instant.toISOString()).run();
   return { saved: true, date, count: levels.length };
 }
+
+async function purgeDeletedAccountData(env, userId) {
+  // Run after Supabase identity deletion. All statements use the same D1 batch.
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM accepted_records WHERE user_id=?").bind(userId),
+    env.DB.prepare("DELETE FROM record_submissions WHERE user_id=?").bind(userId),
+    env.DB.prepare("DELETE FROM support_tickets WHERE user_id=?").bind(userId),
+    env.DB.prepare("DELETE FROM player_profiles WHERE user_id=?").bind(userId),
+    env.DB.prepare("UPDATE record_submissions SET reviewed_by=NULL WHERE reviewed_by=?").bind(userId),
+    env.DB.prepare("UPDATE accepted_records SET approved_by='deleted-user' WHERE approved_by=?").bind(userId),
+    env.DB.prepare("UPDATE moderation_audit_log SET actor_user_id='deleted-user',details_json='{}' WHERE actor_user_id=?").bind(userId),
+    env.DB.prepare("DELETE FROM moderator_roles WHERE user_id=?").bind(userId),
+    env.DB.prepare("DELETE FROM account_deletion_jobs WHERE user_id=?").bind(userId)
+  ]);
+}
+async function retryAccountCleanup(env) {
+  const rows=await env.DB.prepare("SELECT user_id FROM account_deletion_jobs WHERE status='auth_deleted' LIMIT 25").all();
+  for (const row of rows.results || []) {
+    try { await purgeDeletedAccountData(env,row.user_id); }
+    catch (error) { console.error("Account cleanup retry failed",String(error)); }
+  }
+}
+
 export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(saveDailySnapshot(env, new Date(event.scheduledTime)));
+    ctx.waitUntil(retryAccountCleanup(env));
   },
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -160,7 +184,7 @@ export default {
     // Authenticated support requests, staff replies, and account-data export.
     if (url.pathname === "/api/support/tickets" || /^\/api\/support\/tickets\/[^/]+$/.test(url.pathname) ||
         url.pathname === "/api/admin/support/tickets" || /^\/api\/admin\/support\/tickets\/[^/]+$/.test(url.pathname) ||
-        url.pathname === "/api/account/export" || url.pathname === "/api/account/delete-request") {
+        url.pathname === "/api/account/export" || url.pathname === "/api/account/delete-request" || url.pathname === "/api/account/delete") {
       if (!env.DB || !env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY)
         return json({ ok: false, error: "Account service unavailable." }, 503, cors);
       let user;
@@ -173,6 +197,46 @@ export default {
           const role = await env.DB.prepare("SELECT role FROM moderator_roles WHERE user_id = ?").bind(user.id).first();
           if (!role || !["owner","admin","moderator"].includes(role.role))
             return json({ ok: false, error: "Staff access required." }, 403, cors);
+        }
+        if (url.pathname === "/api/account/delete" && request.method === "POST") {
+          if (!env.SUPABASE_SERVICE_ROLE_KEY)
+            return json({ok:false,error:"Automatic deletion is not configured yet. Contact support."},503,cors);
+          if (!request.headers.get("Content-Type")?.startsWith("application/json"))
+            return json({ok:false,error:"Expected JSON."},415,cors);
+          const raw=await request.text();
+          if(raw.length>1000)return json({ok:false,error:"Request too large."},413,cors);
+          let data;try{data=JSON.parse(raw);}catch{return json({ok:false,error:"Invalid JSON."},400,cors);}
+          if(data?.confirmation!=="DELETE MY ACCOUNT")
+            return json({ok:false,error:"Type DELETE MY ACCOUNT to confirm."},400,cors);
+          const role=await env.DB.prepare("SELECT role FROM moderator_roles WHERE user_id=?").bind(user.id).first();
+          if(role)return json({ok:false,error:"Staff accounts cannot be self-deleted. Contact the site owner."},403,cors);
+          const job=await env.DB.prepare("SELECT status FROM account_deletion_jobs WHERE user_id=?").bind(user.id).first();
+          if(job)return json({ok:false,error:"An account deletion is already being processed."},409,cors);
+          // Record a recovery job BEFORE removing the identity.
+          await env.DB.prepare("INSERT INTO account_deletion_jobs(user_id) VALUES(?)").bind(user.id).run();
+          let response;
+          try {
+            response=await fetch(env.SUPABASE_URL+"/auth/v1/admin/users/"+encodeURIComponent(user.id),{
+              method:"DELETE",
+              headers:{apikey:env.SUPABASE_SERVICE_ROLE_KEY,Authorization:"Bearer "+env.SUPABASE_SERVICE_ROLE_KEY},
+              signal:AbortSignal.timeout(10000)
+            });
+          } catch {
+            // Network timeout could mean the delete succeeded. Keep job for staff reconciliation.
+            return json({ok:false,error:"Deletion status is uncertain. Contact support; do not create another account yet."},503,cors);
+          }
+          if(!response.ok){
+            await env.DB.prepare("DELETE FROM account_deletion_jobs WHERE user_id=? AND status='pending'").bind(user.id).run();
+            return json({ok:false,error:"Could not remove the login account. Contact support."},502,cors);
+          }
+          await env.DB.prepare("UPDATE account_deletion_jobs SET status='auth_deleted',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE user_id=?").bind(user.id).run();
+          try {
+            await purgeDeletedAccountData(env,user.id);
+            return json({ok:true,deleted:true},200,cors);
+          } catch {
+            // Cron will retry removal of D1 personal data.
+            return json({ok:true,deleted:false,processing:true,message:"Login removed. Remaining data cleanup is processing."},202,cors);
+          }
         }
         if (url.pathname === "/api/account/export" && request.method === "GET") {
           const [profile, submissions, records, tickets] = await Promise.all([
