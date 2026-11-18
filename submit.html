@@ -11,13 +11,13 @@
 .submission strong{display:block}.submission small{opacity:.8}
 </style></head><body><main class="submit-wrap">
 <p><a href="index.html">← Back to Giga's Challenge List</a></p><h1>Submit a record</h1>
-<p id="account-status" role="status" aria-live="polite">Checking your account…</p>
+<p><a href="guidelines.html" style="color:#ffac75;font-weight:700">Read the submission guidelines (240 FPS, clicks, no cheats)</a> · <a href="staff.html">Staff team</a></p>\n<p id="account-status" role="status" aria-live="polite">Checking your account…</p>
 <section class="submit-card"><form id="submission-form" hidden>
 <label for="level">Challenge</label><select id="level" required><option value="">Choose a challenge</option></select>
 <label for="percent">Completion percentage</label><input id="percent" type="number" min="1" max="100" step="1" value="100" required>
 <label for="evidence">Video evidence URL</label><input id="evidence" type="url" placeholder="https://youtu.be/..." required>
 <label for="notes">Notes (optional)</label><textarea id="notes" maxlength="1000" rows="3"></textarea>
-<button id="submit-record" type="submit">Submit for review</button></form></section>
+<p style="font-size:13px;color:#aaa">By submitting, you confirm your record follows the <a href="guidelines.html" target="_blank" rel="noopener noreferrer" style="color:#ffac75">submission guidelines</a>.</p>\n<button id="submit-record" type="submit">Submit for review</button></form></section>
 <section class="submit-card"><h2>Your submissions</h2><div id="history" aria-live="polite">Sign in to view your submissions.</div></section>
 </main><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="js/auth-config.js"></script><script src="js/platform-config.js"></script><script src="js/submissions.js"></script>
