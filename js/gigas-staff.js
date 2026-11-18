@@ -7,7 +7,7 @@
     { role: "Admins", members: [] },
     { role: "Moderators", members: [] },
     { role: "Trial Mods", members: [] },
-    { role: "Coder", members: [] }
+    { role: "Coder", members: ["Derp"] }
   ];
   const grid = document.getElementById("staff-grid");
   for (const group of staff) {
