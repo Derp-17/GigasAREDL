@@ -75,6 +75,7 @@
   async function init() {
     try {
       const { role } = await apiRequest("/api/admin/me");
+      if (!["owner", "admin"].includes(role)) throw new Error("Owner or admin access required.");
       status.textContent = "Signed in with " + role + " permissions.";
       document.getElementById("admin-card").hidden = false;
       await refreshLevels();
