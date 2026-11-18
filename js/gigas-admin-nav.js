@@ -17,7 +17,7 @@
     });
     if (!response.ok) return;
     const data = await response.json();
-    if (!data.ok || !["owner", "admin"].includes(data.role)) return;
+    if (!data.ok || !["owner", "admin", "moderator"].includes(data.role)) return;
     for (const link of links) link.hidden = false;
   }
   void showForAuthorizedUser().catch(() => {});
