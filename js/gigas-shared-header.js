@@ -21,7 +21,7 @@
       const client = window.supabase.createClient(auth.supabaseUrl, auth.supabaseAnonKey);
       const { data: { session } } = await client.auth.getSession();
       if (!session?.access_token) return;
-      const response = await fetch(platform.apiBase.replace(/\\/$/, "") + "/api/admin/me", { headers: { Authorization: "Bearer " + session.access_token }, cache: "no-store" });
+      const response = await fetch(platform.apiBase.replace(/\/$/, "") + "/api/admin/me", { headers: { Authorization: "Bearer " + session.access_token }, cache: "no-store" });
       if (!response.ok) return;
       const data = await response.json();
       if (data.ok && ["owner","admin","moderator"].includes(data.role)) adminLink.hidden = false;
