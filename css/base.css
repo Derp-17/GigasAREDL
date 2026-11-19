@@ -960,13 +960,13 @@ html body .gigas-header .gigas-more > summary[aria-current="page"],
 html body .gigas-header .gigas-header-actions > a[aria-current="page"]{
   background:var(--primary)!important;
   border:1px solid var(--primary)!important;
-  color:#17110a!important;
+  color:var(--primary-on,#1a0d00)!important;
   box-shadow:none!important;
   text-decoration:none!important;
 }
 html body .gigas-header .gigas-more-menu > a[aria-current="page"]{
   background:var(--primary)!important;
-  color:#17110a!important;
+  color:var(--primary-on,#1a0d00)!important;
   box-shadow:none!important;
 }
 html body .gigas-header .gigas-nav > a[aria-current="page"]:hover,
@@ -974,5 +974,17 @@ html body .gigas-header .gigas-more > summary[aria-current="page"]:hover,
 html body .gigas-header .gigas-header-actions > a[aria-current="page"]:hover{
   background:var(--primary-dark)!important;
   border-color:var(--primary-dark)!important;
-  color:#17110a!important;
+  color:var(--primary-on,#1a0d00)!important;
 }
+
+/* Theme-driven shared buttons: never hard-code orange or pink accents. */
+html body .gigas-header .gigas-nav > a[aria-current="page"],
+html body .gigas-header .gigas-more > summary[aria-current="page"],
+html body .gigas-header .gigas-header-actions > a[aria-current="page"],
+html body .gigas-header .gigas-more-menu > a[aria-current="page"]{
+  color:var(--primary-on,#1a0d00)!important;
+}
+.auth-wrap button:not(.discord),.gigas-controls>a,.feature-wrap button:not([style]),.staff-admin-wrap button:not([style]){
+  background:var(--primary);color:var(--primary-on,#1a0d00);border-color:var(--primary);
+}
+.auth-wrap button.discord{background:#5865f2;color:#fff}
