@@ -1,6 +1,7 @@
 (() => {
   "use strict";
-  const page = location.pathname.split("/").pop() || "index.html";
+  const route = decodeURIComponent(location.pathname).replace(/\/+$/, "").split("/").pop() || "index";
+  const page = route.endsWith(".html") ? route : route + ".html";
   const active = (name) => page === name ? ' aria-current="page"' : "";
   const morePages = new Set(["roulette.html","time-machine.html","submit.html","settings.html","guidelines.html","staff.html","support.html","privacy.html"]);
   const staffPages = new Set(["admin.html","admin-levels.html","admin-users.html","admin-submissions.html","admin-support.html"]);
