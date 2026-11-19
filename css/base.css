@@ -893,3 +893,28 @@ a:hover{color:var(--primary)}
  .feature-wrap h1{font-size:clamp(28px,7vw,40px)}
 }
 @media(prefers-reduced-motion:reduce){a,button,input,select,textarea{transition:none}}
+
+
+/* Shared site header — used on every page */
+.gigas-header{position:sticky;top:0;z-index:80;display:flex;align-items:center;gap:24px;flex-wrap:wrap;padding:12px clamp(16px,3vw,34px);border-bottom:1px solid var(--line-soft);background:rgba(12,12,12,.96);backdrop-filter:blur(12px)}
+.gigas-brand{display:flex;align-items:center;gap:10px;flex-shrink:0;font-family:'Chakra Petch',sans-serif;font-weight:700;font-size:14px;letter-spacing:.02em;line-height:1.1}
+.gigas-brand img{border-radius:6px}
+.gigas-brand small{display:block;font-family:Manrope,sans-serif;font-size:10px;letter-spacing:.08em;font-weight:500;color:var(--text-mid);margin-top:4px}
+.gigas-nav{display:flex;align-items:center;justify-content:center;gap:5px;flex:1}
+.gigas-nav>a,.gigas-more>summary{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:10px 13px;min-height:40px;border-radius:8px;font-size:13px;font-weight:700;line-height:20px;white-space:nowrap;color:var(--text-mid);cursor:pointer;text-decoration:none}
+.gigas-nav>a:hover,.gigas-more>summary:hover,.gigas-more[open]>summary{background:var(--bg-surface);color:var(--text-hi)}
+.gigas-nav>a[aria-current=page]{color:var(--primary)}
+.gigas-more{position:relative}
+.gigas-more>summary{list-style:none}
+.gigas-more>summary::-webkit-details-marker{display:none}
+.gigas-more>summary svg{display:block;flex:none;transition:transform .15s}
+.gigas-more[open]>summary svg{transform:rotate(180deg)}
+.gigas-more-menu{position:absolute;top:calc(100% + 6px);right:0;z-index:90;min-width:200px;padding:7px;background:#222;border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 30px #0009}
+.gigas-more-menu a{display:block;padding:9px 11px;border-radius:6px;font-size:13px;text-decoration:none;color:var(--text-hi)}
+.gigas-more-menu a:hover{background:#333;color:var(--primary)}
+.gigas-header-actions{display:flex;align-items:center;gap:8px;margin-left:auto}
+.gigas-profile,.gigas-admin-link{display:inline-flex;align-items:center;gap:7px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;font-size:13px;font-weight:700;white-space:nowrap}
+.gigas-profile:hover,.gigas-admin-link:hover{border-color:var(--primary)}
+.gigas-admin-link[hidden]{display:none!important}
+@media(max-width:900px){.gigas-header{gap:8px 16px}.gigas-nav{order:3;flex:1 0 100%;justify-content:center}.gigas-header-actions{order:2}}
+@media(max-width:550px){.gigas-brand{font-size:11px}.gigas-brand small{font-size:9px}.gigas-nav{justify-content:space-between;gap:0}.gigas-nav>a,.gigas-more>summary{padding:8px;font-size:12px}.gigas-profile{padding:8px}.gigas-profile span{display:none}.gigas-more-menu{right:0}}
