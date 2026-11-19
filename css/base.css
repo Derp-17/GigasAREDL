@@ -952,3 +952,27 @@ a:hover{color:var(--primary)}
   .gigas-header .gigas-nav>a,.gigas-header .gigas-more>summary{padding:8px;font-size:12px}
   .gigas-header .gigas-header-actions>a{padding:8px 10px}
 }
+
+
+/* Selected navigation item: one unmistakable orange treatment on ALL pages. */
+html body .gigas-header .gigas-nav > a[aria-current="page"],
+html body .gigas-header .gigas-more > summary[aria-current="page"],
+html body .gigas-header .gigas-header-actions > a[aria-current="page"]{
+  background:var(--primary)!important;
+  border:1px solid var(--primary)!important;
+  color:#17110a!important;
+  box-shadow:none!important;
+  text-decoration:none!important;
+}
+html body .gigas-header .gigas-more-menu > a[aria-current="page"]{
+  background:var(--primary)!important;
+  color:#17110a!important;
+  box-shadow:none!important;
+}
+html body .gigas-header .gigas-nav > a[aria-current="page"]:hover,
+html body .gigas-header .gigas-more > summary[aria-current="page"]:hover,
+html body .gigas-header .gigas-header-actions > a[aria-current="page"]:hover{
+  background:var(--primary-dark)!important;
+  border-color:var(--primary-dark)!important;
+  color:#17110a!important;
+}
