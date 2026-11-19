@@ -34,6 +34,9 @@
 .home-topnav{display:flex;align-items:center;justify-content:center;gap:5px;flex-wrap:wrap;padding:0;background:transparent;order:2;flex:1;border:0}
 .home-topnav>a,.home-more>summary{display:inline-flex;align-items:center;gap:7px;padding:9px 15px;border-radius:8px;color:var(--text-mid);font-size:13px;font-weight:700;text-decoration:none;cursor:pointer;list-style:none}
 .home-more>summary::-webkit-details-marker{display:none}
+.home-more>summary{display:flex;align-items:center;justify-content:center;gap:6px;line-height:1.4;white-space:nowrap}
+.home-more>summary span{display:inline-flex;align-items:center;justify-content:center;font-size:13px;line-height:1;width:12px;height:16px;transform:translateY(-1px)}
+.home-more[open]>summary span{transform:translateY(-1px) rotate(180deg)}
 .home-topnav>a:hover,.home-more>summary:hover,.home-more[open]>summary{color:var(--text-hi);background:var(--bg-surface)}
 .home-topnav>a[aria-current=page]{color:var(--primary)}
 .home-more{position:relative}
