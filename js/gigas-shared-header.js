@@ -15,7 +15,19 @@
       if (more.open && !more.contains(event.target)) more.open = false;
     });
     const adminLink = header.querySelector(".gigas-admin-link");
+    const loadScript = src => new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = src;
+      script.onload = resolve;
+      script.onerror = reject;
+      document.head.append(script);
+    });
     (async () => {
+      // Some legacy pages do not load the auth libraries. Make the shared
+      // header independent of which page it appears on.
+      if (!window.GIGAS_PLATFORM_CONFIG) await loadScript("js/platform-config.js");
+      if (!window.GIGAS_AUTH_CONFIG) await loadScript("js/auth-config.js");
+      if (!window.supabase?.createClient) await loadScript("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js");
       const auth = window.GIGAS_AUTH_CONFIG, platform = window.GIGAS_PLATFORM_CONFIG;
       if (!window.supabase?.createClient || !auth?.supabaseUrl || !auth?.supabaseAnonKey || !platform?.apiBase) return;
       const client = window.supabase.createClient(auth.supabaseUrl, auth.supabaseAnonKey);
