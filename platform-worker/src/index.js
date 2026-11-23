@@ -340,13 +340,14 @@ export default {
           }
         }
         if (url.pathname === "/api/account/export" && request.method === "GET") {
-          const [profile, submissions, records, tickets] = await Promise.all([
+          const [profile, submissions, records, tickets, spamSubmissions] = await Promise.all([
             env.DB.prepare("SELECT display_name,bio,avatar_url,created_at,updated_at FROM player_profiles WHERE user_id = ?").bind(user.id).first(),
             env.DB.prepare("SELECT id,level_id,percent,evidence_url,notes,status,review_note,submitted_at,reviewed_at FROM record_submissions WHERE user_id = ? ORDER BY submitted_at DESC").bind(user.id).all(),
             env.DB.prepare("SELECT id,level_id,percent,evidence_url,approved_at FROM accepted_records WHERE user_id = ? ORDER BY approved_at DESC").bind(user.id).all(),
-            env.DB.prepare("SELECT id,category,subject,message,status,staff_reply,created_at,updated_at FROM support_tickets WHERE user_id = ? ORDER BY created_at DESC").bind(user.id).all()
+            env.DB.prepare("SELECT id,category,subject,message,status,staff_reply,created_at,updated_at FROM support_tickets WHERE user_id = ? ORDER BY created_at DESC").bind(user.id).all(),
+            env.DB.prepare("SELECT id,challenge_id,evidence_url,notes,status,review_note,submitted_at,reviewed_at FROM spam_submissions WHERE user_id=? ORDER BY submitted_at DESC").bind(user.id).all()
           ]);
-          return json({ exported_at: new Date().toISOString(), account: { id: user.id, email: user.email || null }, profile: profile || null, submissions: submissions.results || [], accepted_records: records.results || [], support_tickets: tickets.results || [] }, 200, cors);
+          return json({ exported_at: new Date().toISOString(), account: { id: user.id, email: user.email || null }, profile: profile || null, submissions: submissions.results || [], accepted_records: records.results || [], support_tickets: tickets.results || [], spam_submissions: spamSubmissions.results || [] }, 200, cors);
         }
         if ((url.pathname === "/api/support/tickets" || url.pathname === "/api/admin/support/tickets") && request.method === "GET") {
           const staff = adminRoute;
