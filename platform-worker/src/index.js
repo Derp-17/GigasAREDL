@@ -89,6 +89,105 @@ export default {
     if (url.pathname === "/api/health" && request.method === "GET") {
       return json({ ok: true, service: "gigas-challenge-list-api" }, 200, cors);
     }
+
+    // Spam rankings are entirely independent of regular list points.
+    if (url.pathname === "/api/spam/challenges" && request.method === "GET") {
+      try {
+        const rows = await env.DB.prepare("SELECT id,name,creator,verifier,gd_level_id,video_url,position,cps,duration_seconds,notes FROM spam_challenges ORDER BY position ASC LIMIT 500").all();
+        return json({ok:true,challenges:rows.results||[]},200,cors);
+      } catch { return json({ok:false,error:"Spam list is not configured yet. Apply the D1 migration."},503,cors); }
+    }
+    if (url.pathname === "/api/spam/leaderboard" && request.method === "GET") {
+      try {
+        const rows = await env.DB.prepare("SELECT p.display_name AS username, COUNT(*) AS victories, ROUND(SUM(1000.0/c.position),2) AS points FROM spam_submissions s JOIN spam_challenges c ON c.id=s.challenge_id JOIN player_profiles p ON p.user_id=s.user_id WHERE s.status='approved' GROUP BY s.user_id,p.display_name ORDER BY points DESC,victories DESC,username COLLATE NOCASE LIMIT 100").all();
+        return json({ok:true,players:rows.results||[]},200,cors);
+      } catch { return json({ok:false,error:"Spam leaderboard is not configured yet."},503,cors); }
+    }
+    if (url.pathname.startsWith("/api/spam/")) {
+      if (!env.DB) return json({ok:false,error:"Database unavailable."},503,cors);
+      let user;
+      try { user=await authenticatedUser(request,env); }
+      catch { return json({ok:false,error:"Authentication service unavailable."},503,cors); }
+      if (!user) return json({ok:false,error:"Sign in required."},401,cors);
+      try {
+        const staff=await env.DB.prepare("SELECT role FROM moderator_roles WHERE user_id=?").bind(user.id).first();
+        const canModerate=staff && ["owner","admin","moderator"].includes(staff.role);
+        const canEdit=staff && ["owner","admin"].includes(staff.role);
+        const route=url.pathname;
+        if (route==="/api/spam/submissions" && request.method==="GET") {
+          const rows=await env.DB.prepare("SELECT s.id,s.challenge_id,c.name AS challenge_name,s.evidence_url,s.notes,s.status,s.review_note,s.submitted_at FROM spam_submissions s JOIN spam_challenges c ON c.id=s.challenge_id WHERE s.user_id=? ORDER BY s.submitted_at DESC LIMIT 100").bind(user.id).all();
+          return json({ok:true,submissions:rows.results||[]},200,cors);
+        }
+        if (route==="/api/spam/submissions" && request.method==="POST") {
+          const raw=await request.text();
+          if(raw.length>4096) return json({ok:false,error:"Request too large."},413,cors);
+          let d;try{d=JSON.parse(raw)}catch{return json({ok:false,error:"Invalid JSON."},400,cors)}
+          if(typeof d.challenge_id!=="string"||typeof d.evidence_url!=="string"||typeof d.notes!=="string"||d.notes.length>1000||d.evidence_url.length>2048)
+            return json({ok:false,error:"Invalid submission."},400,cors);
+          let video;try{video=new URL(d.evidence_url)}catch{return json({ok:false,error:"Invalid video URL."},400,cors)}
+          if(video.protocol!=="https:"||video.username||video.password||!["youtube.com","www.youtube.com","youtu.be","medal.tv","www.medal.tv","twitch.tv","www.twitch.tv"].includes(video.hostname))
+            return json({ok:false,error:"Use a YouTube, Medal or Twitch HTTPS video."},400,cors);
+          const profile=await env.DB.prepare("SELECT user_id FROM player_profiles WHERE user_id=?").bind(user.id).first();
+          if(!profile)return json({ok:false,error:"Create your profile first."},403,cors);
+          const challenge=await env.DB.prepare("SELECT id FROM spam_challenges WHERE id=?").bind(d.challenge_id).first();
+          if(!challenge)return json({ok:false,error:"Challenge not found."},404,cors);
+          const existing=await env.DB.prepare("SELECT id FROM spam_submissions WHERE user_id=? AND challenge_id=? AND status IN ('pending','approved') LIMIT 1").bind(user.id,d.challenge_id).first();
+          if(existing)return json({ok:false,error:"You already have a pending or approved record for this challenge."},409,cors);
+          const id=crypto.randomUUID();
+          await env.DB.prepare("INSERT INTO spam_submissions(id,challenge_id,user_id,evidence_url,notes) VALUES(?,?,?,?,?)").bind(id,d.challenge_id,user.id,video.href,d.notes.trim()).run();
+          return json({ok:true,id,status:"pending"},201,cors);
+        }
+        if(route==="/api/spam/admin/challenges" && request.method==="POST") {
+          if(!canEdit)return json({ok:false,error:"Admin access required."},403,cors);
+          const raw=await request.text();if(raw.length>4096)return json({ok:false,error:"Request too large."},413,cors);
+          let d;try{d=JSON.parse(raw)}catch{return json({ok:false,error:"Invalid JSON."},400,cors)}
+          const validString=(v,max)=>typeof v==="string"&&v.length<=max;
+          if(!validString(d.name,120)||!d.name.trim()||!validString(d.creator,120)||!validString(d.verifier,120)||!validString(d.gd_level_id,15)||!/^[0-9]*$/.test(d.gd_level_id)||!validString(d.video_url,2048)||!validString(d.notes,1000)||!Number.isInteger(d.position)||d.position<1||d.position>100000||typeof d.cps!=="number"||!Number.isFinite(d.cps)||d.cps<=0||d.cps>100||(d.duration_seconds!==null&&(typeof d.duration_seconds!=="number"||!Number.isFinite(d.duration_seconds)||d.duration_seconds<=0||d.duration_seconds>3600)))
+            return json({ok:false,error:"Invalid challenge details."},400,cors);
+          if(d.video_url){let v;try{v=new URL(d.video_url)}catch{return json({ok:false,error:"Invalid video URL."},400,cors)}if(v.protocol!=="https:"||v.username||v.password)return json({ok:false,error:"Video URL must use HTTPS."},400,cors)}
+          const id=crypto.randomUUID();
+          await env.DB.prepare("INSERT INTO spam_challenges(id,name,creator,verifier,gd_level_id,video_url,position,cps,duration_seconds,notes) VALUES(?,?,?,?,?,?,?,?,?,?)").bind(id,d.name.trim(),d.creator.trim(),d.verifier.trim(),d.gd_level_id,d.video_url,d.position,d.cps,d.duration_seconds,d.notes.trim()).run();
+          return json({ok:true,id},201,cors);
+        }
+        if(/^\\/api\\/spam\\/admin\\/challenges\\/[^/]+$/.test(route) && ["PUT","DELETE"].includes(request.method)) {
+          if(!canEdit)return json({ok:false,error:"Admin access required."},403,cors);
+          const id=decodeURIComponent(route.split("/").pop());
+          if(request.method==="DELETE"){
+            const count=await env.DB.prepare("SELECT COUNT(*) AS n FROM spam_submissions WHERE challenge_id=?").bind(id).first();
+            if(count.n)return json({ok:false,error:"Challenge has submissions and cannot be deleted."},409,cors);
+            await env.DB.prepare("DELETE FROM spam_challenges WHERE id=?").bind(id).run();
+            return json({ok:true},200,cors);
+          }
+          const raw=await request.text();if(raw.length>4096)return json({ok:false,error:"Request too large."},413,cors);
+          let d;try{d=JSON.parse(raw)}catch{return json({ok:false,error:"Invalid JSON."},400,cors)}
+          if(typeof d.name!=="string"||!d.name.trim()||d.name.length>120||!Number.isInteger(d.position)||d.position<1||typeof d.cps!=="number"||!Number.isFinite(d.cps)||d.cps<=0||d.cps>100||[d.creator,d.verifier,d.gd_level_id,d.video_url,d.notes].some(v=>typeof v!=="string")||d.gd_level_id.length>15||!/^[0-9]*$/.test(d.gd_level_id)||d.video_url.length>2048||d.notes.length>1000||(d.duration_seconds!==null&&(!Number.isFinite(d.duration_seconds)||d.duration_seconds<=0||d.duration_seconds>3600)))return json({ok:false,error:"Invalid challenge details."},400,cors);
+          if(d.video_url){let v;try{v=new URL(d.video_url)}catch{return json({ok:false,error:"Invalid video URL."},400,cors)}if(v.protocol!=="https:"||v.username||v.password)return json({ok:false,error:"Video URL must use HTTPS."},400,cors)}
+          await env.DB.prepare("UPDATE spam_challenges SET name=?,creator=?,verifier=?,gd_level_id=?,video_url=?,position=?,cps=?,duration_seconds=?,notes=? WHERE id=?").bind(d.name.trim(),d.creator,d.verifier,d.gd_level_id,d.video_url,d.position,d.cps,d.duration_seconds,d.notes,id).run();
+          return json({ok:true},200,cors);
+        }
+        if(route==="/api/spam/admin/submissions" && request.method==="GET"){
+          if(!canModerate)return json({ok:false,error:"Staff access required."},403,cors);
+          const rows=await env.DB.prepare("SELECT s.id,s.challenge_id,c.name AS challenge_name,COALESCE(p.display_name,'Unknown') AS player_name,s.evidence_url,s.notes,s.status,s.review_note,s.submitted_at FROM spam_submissions s JOIN spam_challenges c ON c.id=s.challenge_id LEFT JOIN player_profiles p ON p.user_id=s.user_id ORDER BY CASE WHEN s.status='pending' THEN 0 ELSE 1 END,s.submitted_at DESC LIMIT 500").all();
+          return json({ok:true,submissions:rows.results||[]},200,cors);
+        }
+        if(/^\\/api\\/spam\\/admin\\/submissions\\/[^/]+$/.test(route)&&request.method==="PUT"){
+          if(!canModerate)return json({ok:false,error:"Staff access required."},403,cors);
+          const id=decodeURIComponent(route.split("/").pop());
+          const raw=await request.text();if(raw.length>2048)return json({ok:false,error:"Request too large."},413,cors);
+          let d;try{d=JSON.parse(raw)}catch{return json({ok:false,error:"Invalid JSON."},400,cors)}
+          if(!["approved","rejected"].includes(d.status)||typeof d.review_note!=="string"||d.review_note.length>1000)return json({ok:false,error:"Invalid review."},400,cors);
+          const old=await env.DB.prepare("SELECT id FROM spam_submissions WHERE id=? AND status='pending'").bind(id).first();
+          if(!old)return json({ok:false,error:"Pending submission not found."},404,cors);
+          await env.DB.prepare("UPDATE spam_submissions SET status=?,review_note=?,reviewed_by=?,reviewed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND status='pending'").bind(d.status,d.review_note,user.id,id).run();
+          return json({ok:true},200,cors);
+        }
+        return json({ok:false,error:"Not found."},404,cors);
+      } catch(error) {
+        if(String(error).includes("UNIQUE constraint"))return json({ok:false,error:"This ranking position or record already exists."},409,cors);
+        return json({ok:false,error:"Spam list database request failed."},500,cors);
+      }
+    }
+
     if (url.pathname === "/api/levels" && request.method === "GET") {
       if (!env.DB) return json({ ok: false, error: "D1 binding is not configured." }, 503, cors);
       const rawLimit = Number.parseInt(url.searchParams.get("limit") || "75", 10);
