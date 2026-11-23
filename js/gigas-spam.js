@@ -37,7 +37,7 @@ async function submit(){
 async function submissions(){const list=$("spam-my-records");if(!list)return;const {submissions}=await req("/api/spam/submissions",{},true);list.replaceChildren();for(const s of submissions){const p=el("p",s.challenge_name+" — "+s.status+(s.review_note?" · "+s.review_note:""));list.append(p);}}
 function readForm(){return {name:$("spam-name").value.trim(),creator:$("spam-creator").value.trim(),verifier:$("spam-verifier").value.trim(),gd_level_id:$("spam-gdid").value.trim(),video_url:$("spam-video").value.trim(),position:Number($("spam-position").value),cps:Number($("spam-cps").value),duration_seconds:$("spam-duration").value?Number($("spam-duration").value):null,notes:$("spam-description").value.trim()};}
 async function admin(){
- msg("Verifying staff permissions…");const me=await req("/api/admin/me",{},true);const editor=$("spam-editor");editor.hidden=!["owner","admin"].includes(me.role);$("spam-review").hidden=false;
+ msg("Verifying staff permissions…");const me=await req("/api/admin/me",{},true);if(!["owner","admin"].includes(me.role))throw Error("Admin or Owner access required for Spam List management.");const editor=$("spam-editor");editor.hidden=false;$("spam-review").hidden=false;
  const form=$("spam-admin-form");let editing=null;
  async function load(){
  const {challenges}=await req("/api/spam/challenges");const area=$("spam-manage-list");area.replaceChildren();
