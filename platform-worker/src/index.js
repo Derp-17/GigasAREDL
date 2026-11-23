@@ -149,7 +149,7 @@ export default {
           await env.DB.prepare("INSERT INTO spam_challenges(id,name,creator,verifier,gd_level_id,video_url,position,cps,duration_seconds,notes) VALUES(?,?,?,?,?,?,?,?,?,?)").bind(id,d.name.trim(),d.creator.trim(),d.verifier.trim(),d.gd_level_id,d.video_url,d.position,d.cps,d.duration_seconds,d.notes.trim()).run();
           return json({ok:true,id},201,cors);
         }
-        if(/^\\/api\\/spam\\/admin\\/challenges\\/[^/]+$/.test(route) && ["PUT","DELETE"].includes(request.method)) {
+        if(route.startsWith("/api/spam/admin/challenges/") && route.split("/").length===6) && ["PUT","DELETE"].includes(request.method)) {
           if(!canEdit)return json({ok:false,error:"Admin access required."},403,cors);
           const id=decodeURIComponent(route.split("/").pop());
           if(request.method==="DELETE"){
@@ -170,7 +170,7 @@ export default {
           const rows=await env.DB.prepare("SELECT s.id,s.challenge_id,c.name AS challenge_name,COALESCE(p.display_name,'Unknown') AS player_name,s.evidence_url,s.notes,s.status,s.review_note,s.submitted_at FROM spam_submissions s JOIN spam_challenges c ON c.id=s.challenge_id LEFT JOIN player_profiles p ON p.user_id=s.user_id ORDER BY CASE WHEN s.status='pending' THEN 0 ELSE 1 END,s.submitted_at DESC LIMIT 500").all();
           return json({ok:true,submissions:rows.results||[]},200,cors);
         }
-        if(/^\\/api\\/spam\\/admin\\/submissions\\/[^/]+$/.test(route)&&request.method==="PUT"){
+        if(route.startsWith("/api/spam/admin/submissions/") && route.split("/").length===6)&&request.method==="PUT"){
           if(!canModerate)return json({ok:false,error:"Staff access required."},403,cors);
           const id=decodeURIComponent(route.split("/").pop());
           const raw=await request.text();if(raw.length>2048)return json({ok:false,error:"Request too large."},413,cors);
