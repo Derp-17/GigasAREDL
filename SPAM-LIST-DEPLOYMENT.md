@@ -23,3 +23,7 @@ All spam data is stored separately from main challenge levels, submissions, reco
 There are initially no spam challenges. An owner or admin adds them via the Spam List staff page after the migration and Worker deployment.
 
 This code has not been browser-tested against the deployed Worker. Verify challenge creation, submission, approval, leaderboard, profile permissions, and account deletion/export after deployment.
+
+## Staff role management
+
+The owner can assign Admin, Moderator or Helper to an existing registered player at `/admin-staff`. Roles are checked by the Worker and changes are audit-logged. Apply the new `0011_staff_helpers.sql` D1 migration before deploying the Worker, using the same migration/deployment commands above. Helpers have limited staff access; only the owner can change roles. Verify role assignment and removal on the deployed site.
