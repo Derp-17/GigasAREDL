@@ -168,12 +168,12 @@ export default {
           return json({ok:true},200,cors);
         }
         if(route==="/api/spam/admin/submissions" && request.method==="GET"){
-          if(!canModerate)return json({ok:false,error:"Staff access required."},403,cors);
+          if(!canEdit)return json({ok:false,error:"Staff access required."},403,cors);
           const rows=await env.DB.prepare("SELECT s.id,s.challenge_id,c.name AS challenge_name,COALESCE(p.display_name,'Unknown') AS player_name,s.evidence_url,s.notes,s.status,s.review_note,s.submitted_at FROM spam_submissions s JOIN spam_challenges c ON c.id=s.challenge_id LEFT JOIN player_profiles p ON p.user_id=s.user_id ORDER BY CASE WHEN s.status='pending' THEN 0 ELSE 1 END,s.submitted_at DESC LIMIT 500").all();
           return json({ok:true,submissions:rows.results||[]},200,cors);
         }
         if((route.startsWith("/api/spam/admin/submissions/") && route.split("/").length===6)&&request.method==="PUT"){
-          if(!canModerate)return json({ok:false,error:"Staff access required."},403,cors);
+          if(!canEdit)return json({ok:false,error:"Staff access required."},403,cors);
           const id=decodeURIComponent(route.split("/").pop());
           const raw=await request.text();if(raw.length>2048)return json({ok:false,error:"Request too large."},413,cors);
           let d;try{d=JSON.parse(raw)}catch{return json({ok:false,error:"Invalid JSON."},400,cors)}
