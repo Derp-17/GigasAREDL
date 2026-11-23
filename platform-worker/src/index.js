@@ -556,6 +556,7 @@ export default {
         if (!role || !["owner", "admin", "moderator", "helper"].includes(role.role))
           return json({ ok: false, error: "Staff access required." }, 403, cors);
         const canEditLevels = ["owner", "admin"].includes(role.role);
+        if(role.role==="helper" && url.pathname!=="/api/admin/levels/all" && url.pathname!=="/api/admin/submissions")return json({ok:false,error:"Helpers do not have moderation permissions."},403,cors);
         if(role.role==="helper" && url.pathname!=="/api/admin/levels/all" && url.pathname!=="/api/admin/submissions" && request.method!=="GET")return json({ok:false,error:"Helpers cannot moderate records."},403,cors);
         if (url.pathname === "/api/admin/levels/all" && request.method === "GET") {
           if (!canEditLevels) return json({ ok: false, error: "Admin access required." }, 403, cors);
