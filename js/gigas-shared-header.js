@@ -4,7 +4,7 @@
   const page = route.endsWith(".html") ? route : route + ".html";
   const active = (name) => page === name ? ' aria-current="page"' : "";
   const morePages = new Set(["roulette.html","time-machine.html","submit.html","settings.html","guidelines.html","staff.html","support.html","privacy.html"]);
-  const staffPages = new Set(["spam-admin.html","admin.html","admin-levels.html","admin-users.html","admin-submissions.html","admin-support.html"]);
+  const staffPages = new Set(["spam-admin.html","admin-staff.html","admin.html","admin-levels.html","admin-users.html","admin-submissions.html","admin-support.html"]);
   const isMorePage = morePages.has(page);
   const isSpamPage = ["spam-list.html","spam-leaderboard.html","spam-submit.html","spam-admin.html"].includes(page);
   const header = document.createElement("header");
@@ -48,7 +48,7 @@
       const response = await fetch(platform.apiBase.replace(/\/$/, "") + "/api/admin/me", { headers: { Authorization: "Bearer " + session.access_token }, cache: "no-store" });
       if (!response.ok) return;
       const data = await response.json();
-      if (data.ok && ["owner","admin","moderator"].includes(data.role)) adminLink.hidden = false;
+      if (data.ok && ["owner","admin","moderator","helper"].includes(data.role)) adminLink.hidden = false;
     })().catch(() => {});
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mount);
