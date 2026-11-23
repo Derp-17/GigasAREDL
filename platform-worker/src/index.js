@@ -56,6 +56,8 @@ async function saveDailySnapshot(env, instant) {
 async function purgeDeletedAccountData(env, userId) {
   // Run after Supabase identity deletion. All statements use the same D1 batch.
   await env.DB.batch([
+    env.DB.prepare("DELETE FROM spam_submissions WHERE user_id=?").bind(userId),
+    env.DB.prepare("UPDATE spam_submissions SET reviewed_by=NULL WHERE reviewed_by=?").bind(userId),
     env.DB.prepare("DELETE FROM accepted_records WHERE user_id=?").bind(userId),
     env.DB.prepare("DELETE FROM record_submissions WHERE user_id=?").bind(userId),
     env.DB.prepare("DELETE FROM support_tickets WHERE user_id=?").bind(userId),
