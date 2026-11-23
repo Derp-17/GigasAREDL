@@ -190,6 +190,44 @@ export default {
       }
     }
 
+
+    // Owner-only staff role management. The target must already have a profile.
+    if (url.pathname === "/api/admin/staff" && ["GET","PUT","DELETE"].includes(request.method)) {
+      if (!env.DB) return json({ok:false,error:"Database unavailable."},503,cors);
+      let user;try{user=await authenticatedUser(request,env)}catch{return json({ok:false,error:"Authentication unavailable."},503,cors)}
+      if(!user)return json({ok:false,error:"Sign in required."},401,cors);
+      try {
+        const caller=await env.DB.prepare("SELECT role FROM moderator_roles WHERE user_id=?").bind(user.id).first();
+        if(caller?.role!=="owner")return json({ok:false,error:"Only the owner can manage staff roles."},403,cors);
+        if(request.method==="GET"){
+          const rows=await env.DB.prepare("SELECT r.user_id,r.role,r.created_at,p.display_name AS username FROM moderator_roles r LEFT JOIN player_profiles p ON p.user_id=r.user_id ORDER BY CASE r.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 WHEN 'moderator' THEN 2 ELSE 3 END,p.display_name COLLATE NOCASE").all();
+          return json({ok:true,staff:rows.results||[]},200,cors);
+        }
+        if(!request.headers.get("Content-Type")?.startsWith("application/json"))return json({ok:false,error:"Expected JSON."},415,cors);
+        const raw=await request.text();if(raw.length>1024)return json({ok:false,error:"Request too large."},413,cors);
+        let d;try{d=JSON.parse(raw)}catch{return json({ok:false,error:"Invalid JSON."},400,cors)}
+        if(typeof d.username!=="string"||! /^[A-Za-z0-9_]{3,24}$/.test(d.username))return json({ok:false,error:"Enter an existing username."},400,cors);
+        const target=await env.DB.prepare("SELECT user_id,display_name FROM player_profiles WHERE display_name=? COLLATE NOCASE").bind(d.username).first();
+        if(!target)return json({ok:false,error:"User profile not found."},404,cors);
+        if(target.user_id===user.id)return json({ok:false,error:"You cannot change your own owner role."},403,cors);
+        const existing=await env.DB.prepare("SELECT role FROM moderator_roles WHERE user_id=?").bind(target.user_id).first();
+        if(existing?.role==="owner")return json({ok:false,error:"Owner role cannot be changed."},403,cors);
+        if(request.method==="PUT"){
+          if(!["admin","moderator","helper"].includes(d.role))return json({ok:false,error:"Choose Admin, Moderator or Helper."},400,cors);
+          await env.DB.batch([
+            env.DB.prepare("INSERT INTO moderator_roles(user_id,role,granted_by) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET role=excluded.role,granted_by=excluded.granted_by").bind(target.user_id,d.role,user.id),
+            env.DB.prepare("INSERT INTO moderation_audit_log(id,actor_user_id,action,target_type,target_id,details_json) VALUES(?,?,'staff_role_changed','user',?,?)").bind(crypto.randomUUID(),user.id,target.user_id,JSON.stringify({username:target.display_name,from:existing?.role||null,to:d.role}))
+          ]);
+          return json({ok:true,username:target.display_name,role:d.role},200,cors);
+        }
+        if(!existing)return json({ok:false,error:"This user is not staff."},404,cors);
+        await env.DB.batch([
+          env.DB.prepare("DELETE FROM moderator_roles WHERE user_id=? AND role!='owner'").bind(target.user_id),
+          env.DB.prepare("INSERT INTO moderation_audit_log(id,actor_user_id,action,target_type,target_id,details_json) VALUES(?,?,'staff_role_removed','user',?,?)").bind(crypto.randomUUID(),user.id,target.user_id,JSON.stringify({username:target.display_name,from:existing.role}))
+        ]);
+        return json({ok:true,removed:true},200,cors);
+      }catch{return json({ok:false,error:"Staff role update failed."},500,cors)}
+    }
     if (url.pathname === "/api/levels" && request.method === "GET") {
       if (!env.DB) return json({ ok: false, error: "D1 binding is not configured." }, 503, cors);
       const rawLimit = Number.parseInt(url.searchParams.get("limit") || "75", 10);
@@ -447,7 +485,7 @@ export default {
       if (!user) return json({ ok: false, error: "Sign in required." }, 401, cors);
       try {
         const access = await env.DB.prepare("SELECT role FROM moderator_roles WHERE user_id = ?").bind(user.id).first();
-        if (!access || !["owner", "admin", "moderator"].includes(access.role))
+        if (!access || !["owner", "admin", "moderator", "helper"].includes(access.role))
           return json({ ok: false, error: "Admin access required." }, 403, cors);
         if (url.pathname === "/api/admin/me" && request.method === "GET")
           return json({ ok: true, role: access.role }, 200, cors);
@@ -515,9 +553,10 @@ export default {
       if (!user) return json({ ok: false, error: "Sign in required." }, 401, cors);
       try {
         const role = await env.DB.prepare("SELECT role FROM moderator_roles WHERE user_id = ?").bind(user.id).first();
-        if (!role || !["owner", "admin", "moderator"].includes(role.role))
+        if (!role || !["owner", "admin", "moderator", "helper"].includes(role.role))
           return json({ ok: false, error: "Staff access required." }, 403, cors);
         const canEditLevels = ["owner", "admin"].includes(role.role);
+        if(role.role==="helper" && url.pathname!=="/api/admin/levels/all" && url.pathname!=="/api/admin/submissions" && request.method!=="GET")return json({ok:false,error:"Helpers cannot moderate records."},403,cors);
         if (url.pathname === "/api/admin/levels/all" && request.method === "GET") {
           if (!canEditLevels) return json({ ok: false, error: "Admin access required." }, 403, cors);
           const rows = await env.DB.prepare("SELECT id, name, creator, verifier, publisher, gd_level_id, verifier_video_url, position, points, list_status FROM levels ORDER BY position IS NULL, position, name LIMIT 500").all();
