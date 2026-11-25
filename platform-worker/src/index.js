@@ -122,7 +122,14 @@ export default {
           if(d.status==="approved"){
             if(!Number.isInteger(d.position)||d.position<1||d.position>100000)return json({error:"Choose a valid placement."},400,cors);
             const table=v.list_type==="spam"?"spam_challenges":"levels";
-            const existing=await env.DB.prepare("SELECT id FROM "+table+" WHERE gd_level_id=? OR position=?").bind(v.gd_level_id,d.position).first();if(existing)return json({error:"Level ID or placement already exists. Choose a vacant placement."},409,cors);
+            const existing=await env.DB.prepare("SELECT id FROM "+table+" WHERE gd_level_id=?").bind(v.gd_level_id).first();if(existing)return json({error:"This GD level ID already exists in the selected list."},409,cors);
+            // Move ranks into a disjoint positive range first to avoid UNIQUE collisions.
+            const scope=v.list_type==="spam"?"":" AND list_status IN ('active','extended')";
+            const pending=" AND EXISTS(SELECT 1 FROM verification_submissions WHERE id=? AND status='pending') AND NOT EXISTS(SELECT 1 FROM "+table+" WHERE gd_level_id=?)";
+            const max=await env.DB.prepare("SELECT COALESCE(MAX(position),0) AS maximum FROM "+table).first();
+            const offset=Math.max(100001,Number(max.maximum)+100001);
+            statements.push(env.DB.prepare("UPDATE "+table+" SET position=position+? WHERE position>=?"+scope+pending).bind(offset,d.position,v.id,v.gd_level_id));
+            statements.push(env.DB.prepare("UPDATE "+table+" SET position=position-?+1 WHERE position>=?"+scope+pending).bind(offset,offset+d.position,v.id,v.gd_level_id));
             if(v.list_type==="spam")statements.push(env.DB.prepare("INSERT INTO spam_challenges(id,name,creator,verifier,gd_level_id,video_url,position,cps,duration_seconds,notes) SELECT id,name,creator,verifier,gd_level_id,video_url,?,cps,duration_seconds,notes FROM verification_submissions WHERE id=? AND status='pending'").bind(d.position,v.id));
             else statements.push(env.DB.prepare("INSERT INTO levels(id,name,creator,verifier,publisher,gd_level_id,verifier_video_url,position,points,list_status,source) SELECT id,name,creator,verifier,creator,gd_level_id,video_url,?,NULL,'active','manual' FROM verification_submissions WHERE id=? AND status='pending'").bind(d.position,v.id));
           }
@@ -422,14 +429,15 @@ export default {
           }
         }
         if (url.pathname === "/api/account/export" && request.method === "GET") {
-          const [profile, submissions, records, tickets, spamSubmissions] = await Promise.all([
+          const [profile, submissions, records, tickets, spamSubmissions, verifications] = await Promise.all([
             env.DB.prepare("SELECT display_name,bio,avatar_url,created_at,updated_at FROM player_profiles WHERE user_id = ?").bind(user.id).first(),
             env.DB.prepare("SELECT id,level_id,percent,evidence_url,notes,status,review_note,submitted_at,reviewed_at FROM record_submissions WHERE user_id = ? ORDER BY submitted_at DESC").bind(user.id).all(),
             env.DB.prepare("SELECT id,level_id,percent,evidence_url,approved_at FROM accepted_records WHERE user_id = ? ORDER BY approved_at DESC").bind(user.id).all(),
             env.DB.prepare("SELECT id,category,subject,message,status,staff_reply,created_at,updated_at FROM support_tickets WHERE user_id = ? ORDER BY created_at DESC").bind(user.id).all(),
-            env.DB.prepare("SELECT id,challenge_id,evidence_url,notes,status,review_note,submitted_at,reviewed_at FROM spam_submissions WHERE user_id=? ORDER BY submitted_at DESC").bind(user.id).all()
+            env.DB.prepare("SELECT id,challenge_id,evidence_url,notes,status,review_note,submitted_at,reviewed_at FROM spam_submissions WHERE user_id=? ORDER BY submitted_at DESC").bind(user.id).all(),
+            env.DB.prepare("SELECT id,list_type,name,creator,verifier,gd_level_id,video_url,suggested_position,cps,duration_seconds,notes,status,review_note,created_at FROM verification_submissions WHERE user_id=? ORDER BY created_at DESC").bind(user.id).all()
           ]);
-          return json({ exported_at: new Date().toISOString(), account: { id: user.id, email: user.email || null }, profile: profile || null, submissions: submissions.results || [], accepted_records: records.results || [], support_tickets: tickets.results || [], spam_submissions: spamSubmissions.results || [] }, 200, cors);
+          return json({ exported_at: new Date().toISOString(), account: { id: user.id, email: user.email || null }, profile: profile || null, submissions: submissions.results || [], accepted_records: records.results || [], support_tickets: tickets.results || [], spam_submissions: spamSubmissions.results || [], verification_submissions: verifications.results || [] }, 200, cors);
         }
         if ((url.pathname === "/api/support/tickets" || url.pathname === "/api/admin/support/tickets") && request.method === "GET") {
           const staff = adminRoute;
