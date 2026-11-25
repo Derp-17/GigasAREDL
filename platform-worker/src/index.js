@@ -191,6 +191,9 @@ export default {
     }
 
 
+    if(url.pathname==="/api/staff" && request.method==="GET"){
+      try{const rows=await env.DB.prepare("SELECT p.display_name AS username,r.role FROM moderator_roles r JOIN player_profiles p ON p.user_id=r.user_id ORDER BY CASE r.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 WHEN 'moderator' THEN 2 ELSE 3 END,p.display_name COLLATE NOCASE").all();return json({ok:true,staff:rows.results||[]},200,cors);}catch{return json({ok:false,error:"Staff directory unavailable."},500,cors);}
+    }
     // Owner-only staff role management. The target must already have a profile.
     if (url.pathname === "/api/admin/staff" && ["GET","PUT","DELETE"].includes(request.method)) {
       if (!env.DB) return json({ok:false,error:"Database unavailable."},503,cors);
@@ -201,7 +204,7 @@ export default {
         if(caller?.role!=="owner")return json({ok:false,error:"Only the owner can manage staff roles."},403,cors);
         if(request.method==="GET"){
           const rows=await env.DB.prepare("SELECT r.user_id,r.role,r.created_at,p.display_name AS username FROM moderator_roles r LEFT JOIN player_profiles p ON p.user_id=r.user_id ORDER BY CASE r.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 WHEN 'moderator' THEN 2 ELSE 3 END,p.display_name COLLATE NOCASE").all();
-          return json({ok:true,staff:rows.results||[]},200,cors);
+          return json({ok:true,staff:rows.results||[],current_user_id:user.id},200,cors);
         }
         if(!request.headers.get("Content-Type")?.startsWith("application/json"))return json({ok:false,error:"Expected JSON."},415,cors);
         const raw=await request.text();if(raw.length>1024)return json({ok:false,error:"Request too large."},413,cors);
@@ -211,18 +214,18 @@ export default {
         if(!target)return json({ok:false,error:"User profile not found."},404,cors);
         if(target.user_id===user.id)return json({ok:false,error:"You cannot change your own owner role."},403,cors);
         const existing=await env.DB.prepare("SELECT role FROM moderator_roles WHERE user_id=?").bind(target.user_id).first();
-        if(existing?.role==="owner")return json({ok:false,error:"Owner role cannot be changed."},403,cors);
+        
         if(request.method==="PUT"){
-          if(!["admin","moderator","helper"].includes(d.role))return json({ok:false,error:"Choose Admin, Moderator or Helper."},400,cors);
+          if(!["owner","admin","moderator","helper"].includes(d.role))return json({ok:false,error:"Choose Owner, Admin, Moderator or Helper."},400,cors);
           await env.DB.batch([
-            env.DB.prepare("INSERT INTO moderator_roles(user_id,role,granted_by) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET role=excluded.role,granted_by=excluded.granted_by").bind(target.user_id,d.role,user.id),
+            env.DB.prepare("INSERT INTO moderator_roles(user_id,role,granted_by) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET role=excluded.role,granted_by=excluded.granted_by WHERE moderator_roles.role!='owner' OR excluded.role='owner' OR EXISTS(SELECT 1 FROM moderator_roles r WHERE r.role='owner' AND r.user_id!=moderator_roles.user_id)").bind(target.user_id,d.role,user.id),
             env.DB.prepare("INSERT INTO moderation_audit_log(id,actor_user_id,action,target_type,target_id,details_json) VALUES(?,?,'staff_role_changed','user',?,?)").bind(crypto.randomUUID(),user.id,target.user_id,JSON.stringify({username:target.display_name,from:existing?.role||null,to:d.role}))
           ]);
           return json({ok:true,username:target.display_name,role:d.role},200,cors);
         }
         if(!existing)return json({ok:false,error:"This user is not staff."},404,cors);
         await env.DB.batch([
-          env.DB.prepare("DELETE FROM moderator_roles WHERE user_id=? AND role!='owner'").bind(target.user_id),
+          env.DB.prepare("DELETE FROM moderator_roles WHERE user_id=? AND (role!='owner' OR EXISTS(SELECT 1 FROM moderator_roles WHERE role='owner' AND user_id!=?))").bind(target.user_id,target.user_id),
           env.DB.prepare("INSERT INTO moderation_audit_log(id,actor_user_id,action,target_type,target_id,details_json) VALUES(?,?,'staff_role_removed','user',?,?)").bind(crypto.randomUUID(),user.id,target.user_id,JSON.stringify({username:target.display_name,from:existing.role}))
         ]);
         return json({ok:true,removed:true},200,cors);
