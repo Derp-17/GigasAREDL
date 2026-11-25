@@ -56,6 +56,8 @@ async function saveDailySnapshot(env, instant) {
 async function purgeDeletedAccountData(env, userId) {
   // Run after Supabase identity deletion. All statements use the same D1 batch.
   await env.DB.batch([
+    env.DB.prepare("DELETE FROM verification_submissions WHERE user_id=?").bind(userId),
+    env.DB.prepare("UPDATE verification_submissions SET reviewed_by=NULL WHERE reviewed_by=?").bind(userId),
     env.DB.prepare("DELETE FROM spam_submissions WHERE user_id=?").bind(userId),
     env.DB.prepare("UPDATE spam_submissions SET reviewed_by=NULL WHERE reviewed_by=?").bind(userId),
     env.DB.prepare("DELETE FROM accepted_records WHERE user_id=?").bind(userId),
@@ -90,6 +92,45 @@ export default {
     }
     if (url.pathname === "/api/health" && request.method === "GET") {
       return json({ ok: true, service: "gigas-challenge-list-api" }, 200, cors);
+    }
+
+    if(url.pathname==="/api/verifications" || url.pathname==="/api/admin/verifications"){
+      const admin=url.pathname.includes("/admin/");
+      try{
+        const user=await authenticatedUser(request,env);
+        if(!user)return json({error:"Sign in required."},401,cors);
+        if(admin){const role=await env.DB.prepare("SELECT role FROM moderator_roles WHERE user_id=?").bind(user.id).first();if(!["owner","admin"].includes(role?.role))return json({error:"Admin access required."},403,cors);}
+        if(request.method==="GET"){
+          const rows=admin?await env.DB.prepare("SELECT v.*,p.display_name AS username FROM verification_submissions v LEFT JOIN player_profiles p ON p.user_id=v.user_id ORDER BY CASE v.status WHEN 'pending' THEN 0 ELSE 1 END,v.created_at DESC LIMIT 500").all():await env.DB.prepare("SELECT id,list_type,name,status,review_note,created_at FROM verification_submissions WHERE user_id=? ORDER BY created_at DESC LIMIT 100").bind(user.id).all();
+          return json({submissions:rows.results||[]},200,cors);
+        }
+        const raw=await request.text();if(raw.length>8192)return json({error:"Request too large."},413,cors);
+        let d;try{d=JSON.parse(raw)}catch{return json({error:"Invalid JSON."},400,cors)}
+        if(!admin&&request.method==="POST"){
+          const valid=(v,n)=>typeof v==="string"&&v.trim().length>0&&v.length<=n;
+          if(!["main","spam"].includes(d.list_type)||!valid(d.name,120)||!valid(d.creator,120)||!valid(d.verifier,120)||!valid(d.gd_level_id,15)||!/^\d+$/.test(d.gd_level_id)||!valid(d.video_url,2048)||typeof d.notes!=="string"||d.notes.length>1000||!Number.isInteger(d.suggested_position)||d.suggested_position<1||d.suggested_position>100000||!Number.isFinite(d.duration_seconds)||d.duration_seconds<=0||d.duration_seconds>30||(d.list_type==="spam"&&(!Number.isFinite(d.cps)||d.cps<=0||d.cps>100)))return json({error:"Invalid verification details."},400,cors);
+          let video;try{video=new URL(d.video_url)}catch{return json({error:"Invalid video URL."},400,cors)}
+          if(video.protocol!=="https:"||video.username||video.password)return json({error:"HTTPS video URL required."},400,cors);
+          const id=crypto.randomUUID();
+          await env.DB.prepare("INSERT INTO verification_submissions(id,user_id,list_type,name,creator,verifier,gd_level_id,video_url,suggested_position,cps,duration_seconds,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)").bind(id,user.id,d.list_type,d.name.trim(),d.creator.trim(),d.verifier.trim(),d.gd_level_id,video.href,d.suggested_position,d.list_type==="spam"?d.cps:null,d.duration_seconds,d.notes.trim()).run();
+          return json({ok:true,id},201,cors);
+        }
+        if(admin&&request.method==="PUT"){
+          if(typeof d.id!=="string"||!["approved","rejected"].includes(d.status)||typeof d.review_note!=="string"||d.review_note.length>1000)return json({error:"Invalid review."},400,cors);
+          const v=await env.DB.prepare("SELECT * FROM verification_submissions WHERE id=? AND status='pending'").bind(d.id).first();if(!v)return json({error:"Pending verification not found."},404,cors);
+          const statements=[];
+          if(d.status==="approved"){
+            if(!Number.isInteger(d.position)||d.position<1||d.position>100000)return json({error:"Choose a valid placement."},400,cors);
+            const table=v.list_type==="spam"?"spam_challenges":"levels";
+            const existing=await env.DB.prepare("SELECT id FROM "+table+" WHERE gd_level_id=? OR position=?").bind(v.gd_level_id,d.position).first();if(existing)return json({error:"Level ID or placement already exists. Choose a vacant placement."},409,cors);
+            if(v.list_type==="spam")statements.push(env.DB.prepare("INSERT INTO spam_challenges(id,name,creator,verifier,gd_level_id,video_url,position,cps,duration_seconds,notes) SELECT id,name,creator,verifier,gd_level_id,video_url,?,cps,duration_seconds,notes FROM verification_submissions WHERE id=? AND status='pending'").bind(d.position,v.id));
+            else statements.push(env.DB.prepare("INSERT INTO levels(id,name,creator,verifier,publisher,gd_level_id,verifier_video_url,position,points,list_status,source) SELECT id,name,creator,verifier,creator,gd_level_id,video_url,?,NULL,'active','manual' FROM verification_submissions WHERE id=? AND status='pending'").bind(d.position,v.id));
+          }
+          statements.push(env.DB.prepare("UPDATE verification_submissions SET status=?,review_note=?,reviewed_by=? WHERE id=? AND status='pending'").bind(d.status,d.review_note,user.id,v.id));
+          await env.DB.batch(statements);return json({ok:true},200,cors);
+        }
+        return json({error:"Method not allowed."},405,cors);
+      }catch(e){return json({error:"Verification request failed. Check migration and placement."},500,cors);}
     }
 
     // Spam rankings are entirely independent of regular list points.
